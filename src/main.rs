@@ -1,13 +1,12 @@
-use my_database::{repl::REPL, Row, Table};
+use my_database::table::{Row, Table};
 
 fn main() {
-    let mut table = Table::init();
-    table.insert_row(Row {
-        id: 0,
-        username: ['a';32],
-        email: ['b';255],
-    });
-    table.select_row();
+    // let mut table = Table::init();
+    // table.insert_row(Row::new(1, "ltp1405", "ltp@gmail.com"));
+    // let rs = table.select_row();
+    // for row in rs {
+    //     println!("{:?}", row);
+    // }
     // let repl = REPL {};
     // loop {
     //     let input = repl.read_line().unwrap();

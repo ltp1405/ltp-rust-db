@@ -15,7 +15,7 @@ pub use pager::Pager;
 
 const COLUMN_USERNAME_SIZE: usize = 32;
 const COLUMN_EMAIL_SIZE: usize = 255;
-const PAGE_SIZE: usize = 4096;
+const PAGE_SIZE: usize = 1 << 14;
 const TABLE_MAX_PAGES: usize = 100;
 const ROW_SIZE: usize = size_of_row();
 const ROWS_PER_PAGE: usize = PAGE_SIZE / ROW_SIZE;

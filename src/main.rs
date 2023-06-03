@@ -1,3 +1,5 @@
+use std::mem::{size_of, size_of_val};
+
 use my_database::table::{Row, Table};
 
 fn main() {
@@ -17,5 +19,3 @@ fn main() {
     //     }
     // }
 }
-
-fn handle_statement(input: String) {}

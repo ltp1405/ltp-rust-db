@@ -3,12 +3,17 @@ use super::Pager;
 pub struct Table {
     pub row_num: usize,
     pub pager: Pager,
+    pub root_page_num: usize,
 }
 
 impl Table {
     pub fn init() -> Self {
         let pager = Pager::init("mydb.db");
-        Table { row_num: 0, pager }
+        Table {
+            row_num: 0,
+            pager,
+            root_page_num: 0,
+        }
     }
 }
 

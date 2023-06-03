@@ -108,18 +108,45 @@ impl<'a> Node<'a> {
         let _ = &self.page.buffer[val_start..val_end].copy_from_slice(val);
     }
 
-    pub fn insert(&mut self, cell_num: u32, key: u32, val: &[u8]) {
-        if cell_num >= LEAF_NODE_MAX_CELLS as u32 {
+    pub fn search(&self, search_key: u32) -> u32 {
+        let num_cells = self.read_num_cells();
+        if num_cells == 0 {
+            return 0;
+        }
+        let mut hi = num_cells;
+        let mut lo = 0;
+        loop {
+            let mid = (lo + hi) / 2;
+            let mid_key = self.read_key(mid);
+            if search_key < mid_key {
+                if mid == 0 {
+                    return 0;
+                } else if search_key > self.read_key(mid - 1) {
+                    return mid;
+                }
+                hi = mid;
+            } else if search_key > mid_key {
+                if mid == num_cells - 1 {
+                    return num_cells;
+                }
+                lo = mid;
+            } else {
+                return mid;
+            }
+        }
+    }
+
+    pub fn insert(&mut self, key: u32, val: &[u8]) {
+        let num_cells = self.read_num_cells();
+        if num_cells >= LEAF_NODE_MAX_CELLS as u32 {
             // TODO: Implement splitting
             todo!();
         }
-
-        let num_cells = self.read_num_cells();
+        let cell_num = self.search(key);
         if cell_num < num_cells {
             for i in (cell_num + 1..=num_cells).rev() {
                 let key = self.read_key(i - 1);
                 self.write_key(i, key);
-                println!("Copy slot cell {} to cell {}", i, i - 1);
                 let val_ptr = self.read_val_raw(i - 1) as *mut u8;
                 let new_val_ptr = self.read_val_raw(i) as *mut u8;
                 unsafe {
@@ -151,6 +178,41 @@ mod node {
     use crate::table::{btree::node::NodeType, page::Page, ROW_SIZE};
 
     use super::{Node, LEAF_NODE_MAX_CELLS};
+
+    #[test]
+    fn basic_search() {
+        let mut page = Page::init();
+        let mut node = Node::new(&mut page);
+        node.write_key(0, 3);
+        node.write_key(1, 9);
+        node.write_key(2, 34);
+        node.write_key(3, 57);
+        node.write_num_cells(4);
+        assert_eq!(node.search(9), 1);
+        assert_eq!(node.search(2), 0);
+        assert_eq!(node.search(6), 1);
+        assert_eq!(node.search(12), 2);
+        assert_eq!(node.search(50), 3);
+        assert_eq!(node.search(60), 4);
+    }
+
+    #[test]
+    fn basic_search2() {
+        let mut page = Page::init();
+        let mut node = Node::new(&mut page);
+        node.write_key(0, 3);
+        node.write_key(1, 9);
+        node.write_key(2, 34);
+        node.write_key(3, 57);
+        node.write_key(4, 90);
+        node.write_num_cells(5);
+        assert_eq!(node.search(2), 0);
+        assert_eq!(node.search(6), 1);
+        assert_eq!(node.search(12), 2);
+        assert_eq!(node.search(50), 3);
+        assert_eq!(node.search(60), 4);
+        assert_eq!(node.search(100), 5);
+    }
 
     #[test]
     fn node_type() {
@@ -185,73 +247,34 @@ mod node {
     }
 
     #[test]
-    fn basic_insert() {
+    fn simple_insert() {
         let mut page = Page::init();
         let mut node = Node::new(&mut page);
         let dummy_val = [12; ROW_SIZE];
-        node.insert(0, 10, &dummy_val);
-        node.insert(0, 20, &dummy_val);
-        let inserted_key = node.read_key(0);
-        assert_eq!(inserted_key, 20);
+        node.insert(10, &dummy_val);
+        node.insert(20, &dummy_val);
+        assert_eq!(node.read_key(0), 10);
+        assert_eq!(node.read_key(1), 20);
     }
 
     #[test]
-    fn insert_at_the_back() {
+    fn insert() {
         let mut page = Page::init();
         let mut node = Node::new(&mut page);
-        let dummy_val1 = [1; ROW_SIZE];
-        let dummy_val2 = [2; ROW_SIZE];
-        let dummy_val3 = [3; ROW_SIZE];
-        node.insert(0, 10, &dummy_val1);
-        node.insert(1, 20, &dummy_val2);
-        node.insert(2, 30, &dummy_val3);
-        let inserted_key = node.read_key(0);
-        assert_eq!(inserted_key, 10);
-        let inserted_key = node.read_key(1);
-        assert_eq!(inserted_key, 20);
-        let inserted_key = node.read_key(2);
-        assert_eq!(inserted_key, 30);
-    }
+        let mut val_list = vec![32523, 2, 12, 532, 32, 235];
 
-    #[test]
-    fn insert_at_the_start() {
-        let mut page = Page::init();
-        let mut node = Node::new(&mut page);
-        let dummy_val1 = [1; ROW_SIZE];
-        let dummy_val2 = [2; ROW_SIZE];
-        let dummy_val3 = [3; ROW_SIZE];
-        node.insert(0, 10, &dummy_val1);
-        node.insert(0, 20, &dummy_val2);
-        node.insert(0, 30, &dummy_val3);
+        for v in &val_list {
+            node.insert(*v, &[0; ROW_SIZE]);
+        }
 
-        println!("{:?}", node.page.buffer);
-        assert_eq!(node.read_num_cells(), 3);
-        let inserted_key = node.read_key(0);
-        assert_eq!(inserted_key, 30);
-        let inserted_key = node.read_key(1);
-        assert_eq!(inserted_key, 20);
-        let inserted_key = node.read_key(2);
-        assert_eq!(inserted_key, 10);
-    }
+        val_list.sort();
 
-    #[test]
-    fn insert_in_the_middle() {
-        let mut page = Page::init();
-        let mut node = Node::new(&mut page);
-        let dummy_val1 = [1; ROW_SIZE];
-        let dummy_val2 = [2; ROW_SIZE];
-        let dummy_val3 = [3; ROW_SIZE];
-        node.insert(0, 10, &dummy_val1);
-        node.insert(1, 20, &dummy_val2);
-        node.insert(1, 30, &dummy_val3);
+        let mut key_list = Vec::new();
+        for i in 0..node.read_num_cells() {
+            key_list.push(node.read_key(i));
+        }
 
-        assert_eq!(node.read_num_cells(), 3);
-        let inserted_key = node.read_key(0);
-        assert_eq!(inserted_key, 10);
-        let inserted_key = node.read_key(1);
-        assert_eq!(inserted_key, 30);
-        let inserted_key = node.read_key(2);
-        assert_eq!(inserted_key, 20);
+        assert_eq!(val_list, key_list);
     }
 
     #[test]
@@ -259,6 +282,8 @@ mod node {
     fn insert_over_limit() {
         let mut page = Page::init();
         let mut node = Node::new(&mut page);
-        node.insert(LEAF_NODE_MAX_CELLS as u32, 0, &[0]);
+        for i in 0..100 {
+            node.insert(i, &[0]);
+        }
     }
 }

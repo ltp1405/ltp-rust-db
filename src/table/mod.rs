@@ -6,6 +6,7 @@ mod table;
 mod tests;
 mod cursor;
 mod page;
+mod btree;
 
 pub use row::Row;
 pub use table::Table;

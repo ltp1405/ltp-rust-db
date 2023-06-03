@@ -2,25 +2,29 @@ use std::mem::size_of;
 
 use crate::table::{page::Page, PAGE_SIZE, ROW_SIZE};
 
+type LeafNodeKey = u32;
+type ParentPointer = u32;
+type CellsCount = u32;
+
 /// Common Node Header Layout
 /// (<offset>, <size>)
-static NODE_TYPE: (usize, usize) = (0, size_of::<u8>());
+static NODE_TYPE: (usize, usize) = (0, size_of::<NodeType>());
 /// (<offset>, <size>)
-static IS_ROOT: (usize, usize) = (NODE_TYPE.1, size_of::<u8>());
+static IS_ROOT: (usize, usize) = (NODE_TYPE.1, size_of::<bool>());
 /// (<offset>, <size>)
-static PARENT_POINTER: (usize, usize) = (IS_ROOT.0 + IS_ROOT.1, size_of::<u32>());
+static PARENT_POINTER: (usize, usize) = (IS_ROOT.0 + IS_ROOT.1, size_of::<ParentPointer>());
 /// (<offset>, <size>)
 static COMMON_NODE_HEADER_SIZE: usize = NODE_TYPE.1 + PARENT_POINTER.1 + IS_ROOT.1;
 
 /// Leaf Node Header Layout
 /// (<offset>, <size>)
-static LEAF_NODE_NUM_CELLS: (usize, usize) = (COMMON_NODE_HEADER_SIZE, size_of::<u32>());
+static LEAF_NODE_NUM_CELLS: (usize, usize) = (COMMON_NODE_HEADER_SIZE, size_of::<CellsCount>());
 /// (<offset>, <size>)
 static LEAF_NODE_HEADER_SIZE: usize = COMMON_NODE_HEADER_SIZE + LEAF_NODE_NUM_CELLS.1;
 
 /// Leaf Node Body Layout
 /// (<offset>, <size>)
-static LEAF_NODE_KEY: (usize, usize) = (0, size_of::<u32>());
+static LEAF_NODE_KEY: (usize, usize) = (0, size_of::<LeafNodeKey>());
 /// (<offset>, <size>)
 static LEAF_NODE_VAL: (usize, usize) = (LEAF_NODE_KEY.1, ROW_SIZE);
 static LEAF_NODE_CELL_SIZE: usize = LEAF_NODE_KEY.1 + LEAF_NODE_VAL.1;
@@ -35,6 +39,16 @@ pub struct Node<'a> {
 impl<'a> Node<'a> {
     pub fn new(page: &'a mut Page) -> Self {
         Node { page }
+    }
+
+    pub fn read_node_type(&self) -> NodeType {
+        let buffer_ptr = self.page.buffer.as_ptr() as *const NodeType;
+        unsafe { buffer_ptr.add(NODE_TYPE.0).read() }
+    }
+
+    pub fn write_node_type(&mut self, node_type: NodeType) {
+        let buffer_ptr = self.page.buffer.as_ptr() as *mut NodeType;
+        unsafe { *buffer_ptr.add(NODE_TYPE.0) = node_type }
     }
 
     pub fn read_parent_pointer(&self) -> u32 {
@@ -71,7 +85,7 @@ impl<'a> Node<'a> {
         unsafe { cell_ptr.read() }
     }
 
-    pub fn write_key(&self, cell_num: u32, key: u32) {
+    pub fn write_key(&mut self, cell_num: u32, key: u32) {
         let cell_ptr = self.cell_ptr(cell_num) as *mut u32;
         unsafe { *cell_ptr = key };
     }
@@ -91,7 +105,7 @@ impl<'a> Node<'a> {
     fn write_val(&mut self, cell_num: u32, val: &[u8]) {
         let val_start = self.cell_pos(cell_num) + LEAF_NODE_VAL.0;
         let val_end = val_start + LEAF_NODE_VAL.1;
-        &self.page.buffer[val_start..val_end].copy_from_slice(val);
+        let _ = &self.page.buffer[val_start..val_end].copy_from_slice(val);
     }
 
     pub fn insert(&mut self, cell_num: u32, key: u32, val: &[u8]) {
@@ -126,16 +140,33 @@ impl<'a> Node<'a> {
 }
 
 #[repr(u8)]
-enum NodeType {
+#[derive(Debug, PartialEq)]
+pub enum NodeType {
     Internal,
     Leaf,
 }
 
 #[cfg(test)]
 mod node {
-    use crate::table::{page::Page, ROW_SIZE};
+    use crate::table::{btree::node::NodeType, page::Page, ROW_SIZE};
 
     use super::{Node, LEAF_NODE_MAX_CELLS};
+
+    #[test]
+    fn node_type() {
+        let mut page = Page::init();
+        let mut node = Node::new(&mut page);
+        node.write_node_type(NodeType::Leaf);
+        assert_eq!(node.read_node_type(), NodeType::Leaf);
+    }
+
+    #[test]
+    fn parent_pointer() {
+        let mut page = Page::init();
+        let mut node = Node::new(&mut page);
+        node.write_parent_pointer(10);
+        assert_eq!(node.read_parent_pointer(), 10);
+    }
 
     #[test]
     fn cell_nums() {

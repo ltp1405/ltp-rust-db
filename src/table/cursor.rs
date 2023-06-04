@@ -38,14 +38,10 @@ impl<'a> Cursor<'a> {
     pub fn write(&mut self, row: Row) {
         let page_num = self.row_num / ROWS_PER_PAGE;
         let page = &mut self.table.pager.get_page_mut(page_num).unwrap();
-
         let row_offset = self.row_num % ROWS_PER_PAGE;
         let byte_offset = row_offset * ROW_SIZE;
-        let page_ptr = page.as_mut_ptr();
-        let row_slot_ptr = unsafe { page_ptr.add(byte_offset) } as *mut Row;
-        unsafe {
-            std::ptr::write(row_slot_ptr, row);
-        }
+        println!("{}", byte_offset);
+        page.write_val_at(byte_offset, row);
         if self.end_of_table {
             self.end_of_table = false;
             self.table.row_num += 1;
@@ -60,9 +56,7 @@ impl<'a> Cursor<'a> {
         let page = &mut self.table.pager.get_page(page_num).unwrap();
         let row_offset = self.row_num % ROWS_PER_PAGE;
         let byte_offset = row_offset * ROW_SIZE;
-        let page_ptr = page.as_ptr();
-
-        let row_ptr = unsafe { page_ptr.add(byte_offset) } as *mut Row;
-        Some(unsafe { row_ptr.as_ref().unwrap() })
+        println!("{}", byte_offset);
+        Some(page.get_val_at::<Row>(byte_offset))
     }
 }

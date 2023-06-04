@@ -50,33 +50,27 @@ impl<'a> Node<'a> {
     }
 
     pub fn read_node_type(&self) -> NodeType {
-        let buffer_ptr = self.page.as_ptr() as *const NodeType;
-        unsafe { buffer_ptr.add(NODE_TYPE.0).read() }
+        self.page.read_val_at(NODE_TYPE.0)
     }
 
     pub fn write_node_type(&mut self, node_type: NodeType) {
-        let buffer_ptr = self.page.as_ptr() as *mut NodeType;
-        unsafe { *buffer_ptr.add(NODE_TYPE.0) = node_type }
+        self.page.write_val_at(NODE_TYPE.0, node_type);
     }
 
     pub fn read_parent_pointer(&self) -> u32 {
-        let buffer_ptr = self.page.as_ptr() as *const u32;
-        unsafe { buffer_ptr.add(PARENT_POINTER.0).read() }
+        self.page.read_val_at(PARENT_POINTER.0)
     }
 
     pub fn write_parent_pointer(&mut self, parent_pointer: u32) {
-        let buffer_ptr = self.page.as_ptr() as *mut u32;
-        unsafe { *buffer_ptr.add(PARENT_POINTER.0) = parent_pointer }
+        self.page.write_val_at(PARENT_POINTER.0, parent_pointer);
     }
 
     pub fn read_num_cells(&self) -> u32 {
-        let buffer_ptr = self.page.as_ptr() as *const u32;
-        unsafe { *buffer_ptr.add(LEAF_NODE_NUM_CELLS.0) }
+        self.page.read_val_at(LEAF_NODE_NUM_CELLS.0)
     }
 
     pub fn write_num_cells(&mut self, num_cells: u32) {
-        let buffer_ptr = self.page.as_mut_ptr() as *mut u32;
-        unsafe { *buffer_ptr.add(LEAF_NODE_NUM_CELLS.0) = num_cells }
+        self.page.write_val_at(LEAF_NODE_NUM_CELLS.0, num_cells);
     }
 
     fn cell_ptr(&self, cell_num: u32) -> *const u8 {
@@ -84,34 +78,32 @@ impl<'a> Node<'a> {
         unsafe { buffer_ptr.add(LEAF_NODE_HEADER_SIZE + (cell_num as usize * LEAF_NODE_CELL_SIZE)) }
     }
 
-    fn cell_pos(&self, cell_num: u32) -> usize {
+    fn cell_offset(&self, cell_num: u32) -> usize {
         LEAF_NODE_HEADER_SIZE + (cell_num as usize * LEAF_NODE_CELL_SIZE)
     }
 
     pub fn read_key(&self, cell_num: u32) -> u32 {
-        let cell_ptr = self.cell_ptr(cell_num) as *const u32;
-        unsafe { cell_ptr.read() }
+        self.page.read_val_at(self.cell_offset(cell_num))
     }
 
     pub fn write_key(&mut self, cell_num: u32, key: u32) {
-        let cell_ptr = self.cell_ptr(cell_num) as *mut u32;
-        unsafe { *cell_ptr = key };
+        self.page.write_val_at(self.cell_offset(cell_num), key);
     }
 
     fn read_val(&self, cell_num: u32) -> &[u8] {
-        let val_start = self.cell_pos(cell_num) + LEAF_NODE_VAL.0;
+        let val_start = self.cell_offset(cell_num) + LEAF_NODE_VAL.0;
         let val_end = val_start + LEAF_NODE_VAL.1;
         &self.page[val_start..val_end]
     }
 
     fn read_val_raw(&self, cell_num: u32) -> *const u8 {
-        let val_start = self.cell_pos(cell_num) + LEAF_NODE_VAL.0;
+        let val_start = self.cell_offset(cell_num) + LEAF_NODE_VAL.0;
         let val_end = val_start + LEAF_NODE_VAL.1;
         self.page[val_start..val_end].as_ptr()
     }
 
     fn write_val(&mut self, cell_num: u32, val: &[u8]) {
-        let val_start = self.cell_pos(cell_num) + LEAF_NODE_VAL.0;
+        let val_start = self.cell_offset(cell_num) + LEAF_NODE_VAL.0;
         let val_end = val_start + LEAF_NODE_VAL.1;
         let _ = &self.page[val_start..val_end].copy_from_slice(val);
     }

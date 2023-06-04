@@ -36,43 +36,51 @@ pub struct Node<'a> {
     page: &'a mut Page,
 }
 
+#[derive(Debug, PartialEq)]
+pub enum Slot {
+    /// Represent a slot which is not occupied by a key yet
+    Hole(u32),
+    /// Represent a slot which is occupied by a key
+    Cell(u32),
+}
+
 impl<'a> Node<'a> {
     pub fn new(page: &'a mut Page) -> Self {
         Node { page }
     }
 
     pub fn read_node_type(&self) -> NodeType {
-        let buffer_ptr = self.page.buffer.as_ptr() as *const NodeType;
+        let buffer_ptr = self.page.as_ptr() as *const NodeType;
         unsafe { buffer_ptr.add(NODE_TYPE.0).read() }
     }
 
     pub fn write_node_type(&mut self, node_type: NodeType) {
-        let buffer_ptr = self.page.buffer.as_ptr() as *mut NodeType;
+        let buffer_ptr = self.page.as_ptr() as *mut NodeType;
         unsafe { *buffer_ptr.add(NODE_TYPE.0) = node_type }
     }
 
     pub fn read_parent_pointer(&self) -> u32 {
-        let buffer_ptr = self.page.buffer.as_ptr() as *const u32;
+        let buffer_ptr = self.page.as_ptr() as *const u32;
         unsafe { buffer_ptr.add(PARENT_POINTER.0).read() }
     }
 
     pub fn write_parent_pointer(&mut self, parent_pointer: u32) {
-        let buffer_ptr = self.page.buffer.as_ptr() as *mut u32;
+        let buffer_ptr = self.page.as_ptr() as *mut u32;
         unsafe { *buffer_ptr.add(PARENT_POINTER.0) = parent_pointer }
     }
 
     pub fn read_num_cells(&self) -> u32 {
-        let buffer_ptr = self.page.buffer.as_ptr() as *const u32;
+        let buffer_ptr = self.page.as_ptr() as *const u32;
         unsafe { *buffer_ptr.add(LEAF_NODE_NUM_CELLS.0) }
     }
 
     pub fn write_num_cells(&mut self, num_cells: u32) {
-        let buffer_ptr = self.page.buffer.as_mut_ptr() as *mut u32;
+        let buffer_ptr = self.page.as_mut_ptr() as *mut u32;
         unsafe { *buffer_ptr.add(LEAF_NODE_NUM_CELLS.0) = num_cells }
     }
 
     fn cell_ptr(&self, cell_num: u32) -> *const u8 {
-        let buffer_ptr = self.page.buffer.as_ptr();
+        let buffer_ptr = self.page.as_ptr();
         unsafe { buffer_ptr.add(LEAF_NODE_HEADER_SIZE + (cell_num as usize * LEAF_NODE_CELL_SIZE)) }
     }
 
@@ -93,25 +101,25 @@ impl<'a> Node<'a> {
     fn read_val(&self, cell_num: u32) -> &[u8] {
         let val_start = self.cell_pos(cell_num) + LEAF_NODE_VAL.0;
         let val_end = val_start + LEAF_NODE_VAL.1;
-        &self.page.buffer[val_start..val_end]
+        &self.page[val_start..val_end]
     }
 
     fn read_val_raw(&self, cell_num: u32) -> *const u8 {
         let val_start = self.cell_pos(cell_num) + LEAF_NODE_VAL.0;
         let val_end = val_start + LEAF_NODE_VAL.1;
-        self.page.buffer[val_start..val_end].as_ptr()
+        self.page[val_start..val_end].as_ptr()
     }
 
     fn write_val(&mut self, cell_num: u32, val: &[u8]) {
         let val_start = self.cell_pos(cell_num) + LEAF_NODE_VAL.0;
         let val_end = val_start + LEAF_NODE_VAL.1;
-        let _ = &self.page.buffer[val_start..val_end].copy_from_slice(val);
+        let _ = &self.page[val_start..val_end].copy_from_slice(val);
     }
 
-    pub fn search(&self, search_key: u32) -> u32 {
+    pub fn search(&self, search_key: u32) -> Slot {
         let num_cells = self.read_num_cells();
         if num_cells == 0 {
-            return 0;
+            return Slot::Hole(0);
         }
         let mut hi = num_cells;
         let mut lo = 0;
@@ -120,18 +128,18 @@ impl<'a> Node<'a> {
             let mid_key = self.read_key(mid);
             if search_key < mid_key {
                 if mid == 0 {
-                    return 0;
+                    return Slot::Hole(0);
                 } else if search_key > self.read_key(mid - 1) {
-                    return mid;
+                    return Slot::Hole(mid);
                 }
                 hi = mid;
             } else if search_key > mid_key {
                 if mid == num_cells - 1 {
-                    return num_cells;
+                    return Slot::Hole(num_cells);
                 }
                 lo = mid;
             } else {
-                return mid;
+                return Slot::Cell(mid);
             }
         }
     }
@@ -142,7 +150,11 @@ impl<'a> Node<'a> {
             // TODO: Implement splitting
             todo!();
         }
-        let cell_num = self.search(key);
+        let cell_num = if let Slot::Hole(hole) = self.search(key) {
+            hole
+        } else {
+            panic!("Key already inserted");
+        };
         if cell_num < num_cells {
             for i in (cell_num + 1..=num_cells).rev() {
                 let key = self.read_key(i - 1);
@@ -175,7 +187,11 @@ pub enum NodeType {
 
 #[cfg(test)]
 mod node {
-    use crate::table::{btree::node::NodeType, page::Page, ROW_SIZE};
+    use crate::table::{
+        btree::node::{NodeType, Slot},
+        page::Page,
+        ROW_SIZE,
+    };
 
     use super::{Node, LEAF_NODE_MAX_CELLS};
 
@@ -188,12 +204,12 @@ mod node {
         node.write_key(2, 34);
         node.write_key(3, 57);
         node.write_num_cells(4);
-        assert_eq!(node.search(9), 1);
-        assert_eq!(node.search(2), 0);
-        assert_eq!(node.search(6), 1);
-        assert_eq!(node.search(12), 2);
-        assert_eq!(node.search(50), 3);
-        assert_eq!(node.search(60), 4);
+        assert_eq!(node.search(9), Slot::Cell(1));
+        assert_eq!(node.search(2), Slot::Hole(0));
+        assert_eq!(node.search(6), Slot::Hole(1));
+        assert_eq!(node.search(12), Slot::Hole(2));
+        assert_eq!(node.search(50), Slot::Hole(3));
+        assert_eq!(node.search(60), Slot::Hole(4));
     }
 
     #[test]
@@ -206,12 +222,12 @@ mod node {
         node.write_key(3, 57);
         node.write_key(4, 90);
         node.write_num_cells(5);
-        assert_eq!(node.search(2), 0);
-        assert_eq!(node.search(6), 1);
-        assert_eq!(node.search(12), 2);
-        assert_eq!(node.search(50), 3);
-        assert_eq!(node.search(60), 4);
-        assert_eq!(node.search(100), 5);
+        assert_eq!(node.search(2), Slot::Hole(0));
+        assert_eq!(node.search(6), Slot::Hole(1));
+        assert_eq!(node.search(12), Slot::Hole(2));
+        assert_eq!(node.search(50), Slot::Hole(3));
+        assert_eq!(node.search(60), Slot::Hole(4));
+        assert_eq!(node.search(100), Slot::Hole(5));
     }
 
     #[test]

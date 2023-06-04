@@ -29,7 +29,7 @@ impl Pager {
 
         for _ in 0..pages_in_file {
             let mut new_page = Page::init();
-            file.read_exact(&mut new_page.buffer.as_mut_slice())
+            file.read_exact(&mut new_page.as_mut_slice())
                 .unwrap();
             pages.push(Some(new_page));
         }
@@ -60,7 +60,7 @@ impl Pager {
             self.file
                 .seek(std::io::SeekFrom::Start((PAGE_SIZE * page_num) as u64))
                 .unwrap();
-            self.file.read(page.buffer.as_mut_slice()).unwrap();
+            self.file.read(page.as_mut_slice()).unwrap();
             page
         };
 
@@ -80,7 +80,7 @@ impl Pager {
             self.file
                 .seek(std::io::SeekFrom::Start((PAGE_SIZE * page_num) as u64))
                 .unwrap();
-            self.file.read(page.buffer.as_mut_slice()).unwrap();
+            self.file.read(page.as_mut_slice()).unwrap();
             page
         };
 
@@ -93,7 +93,7 @@ impl Pager {
                 .seek(std::io::SeekFrom::Start((page_num * PAGE_SIZE) as u64))
                 .unwrap();
             self.file
-                .write(page.as_ref().unwrap().buffer.as_slice())
+                .write(page.as_ref().unwrap().as_slice())
                 .unwrap();
         }
     }

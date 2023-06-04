@@ -30,13 +30,13 @@ fn modify_all_page() {
         initialize();
         let mut pager = Pager::init(TEST_FILE);
         let page = pager.get_page_mut(i).unwrap();
-        for e in page.buffer.iter_mut() {
+        for e in page.iter_mut() {
             *e = 0x1;
         }
         pager.flush();
 
         let page = pager.get_page(i).unwrap();
-        for e in page.buffer.iter() {
+        for e in page.iter() {
             assert_eq!(e, &0x1);
         }
     }
@@ -48,13 +48,13 @@ fn modify_a_page() {
     initialize();
     let mut pager = Pager::init(TEST_FILE);
     let page = pager.get_page_mut(0).unwrap();
-    for e in page.buffer.iter_mut() {
+    for e in page.iter_mut() {
         *e = 0x1;
     }
     pager.flush();
 
     let page = pager.get_page(0).unwrap();
-    for e in page.buffer.iter() {
+    for e in page.iter() {
         assert_eq!(e, &0x1);
     }
 }
@@ -74,7 +74,7 @@ fn modify_save_load() {
     initialize();
     let mut pager = Pager::init(TEST_FILE);
     let page = pager.get_page_mut(0).unwrap();
-    for e in page.buffer.iter_mut() {
+    for e in page.iter_mut() {
         *e = 0x1;
     }
     pager.flush();
@@ -83,7 +83,7 @@ fn modify_save_load() {
 
     let mut pager = Pager::init(TEST_FILE);
     let page = pager.get_page(0).unwrap();
-    for e in page.buffer.iter() {
+    for e in page.iter() {
         assert_eq!(e, &0x1);
     }
 }
@@ -95,7 +95,7 @@ fn modify_save_load_all_pages() {
     let mut pager = Pager::init(TEST_FILE);
     for i in 0..TABLE_MAX_PAGES {
         let page = pager.get_page_mut(i).unwrap();
-        for e in page.buffer.iter_mut() {
+        for e in page.iter_mut() {
             *e = i as u8;
         }
     }
@@ -104,7 +104,7 @@ fn modify_save_load_all_pages() {
     let mut pager = Pager::init(TEST_FILE);
     for i in 0..TABLE_MAX_PAGES {
         let page = pager.get_page(i).unwrap();
-        for e in page.buffer.iter() {
+        for e in page.iter() {
             if *e != i as u8 {
                 panic!("Error at page {}", i);
             }

@@ -1,4 +1,4 @@
-use std::process::{exit, ExitCode};
+use std::process::exit;
 
 pub enum MetaCommandError {
     UnrecognizedCommand,

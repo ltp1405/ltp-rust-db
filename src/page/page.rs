@@ -3,7 +3,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
-use super::super::PAGE_SIZE;
+use super::PAGE_SIZE;
 
 #[derive(Debug, PartialEq, Eq)]
 pub struct Page {
@@ -30,43 +30,42 @@ impl Page {
         }
     }
 
-    pub fn read_val_at<T>(&self, pos: usize) -> T {
+    pub unsafe fn read_val_at<T>(&self, pos: usize) -> T {
         if pos + size_of::<T>() > PAGE_SIZE {
             panic!("Memory out of bound");
         }
-        let buffer_ptr = self.as_ptr() as *const T;
-        unsafe { buffer_ptr.add(pos).read_unaligned() }
+        let buffer_ptr = self.as_ptr().add(pos) as *const T;
+        unsafe { buffer_ptr.read_unaligned() }
     }
 
-    pub fn get_val_at<T>(&self, pos: usize) -> &T {
+    pub unsafe fn get_val_at<T>(&self, pos: usize) -> &T {
         if pos + size_of::<T>() > PAGE_SIZE {
             panic!("Memory out of bound");
         }
-        let buffer_ptr = self.as_ptr() as *const T;
-        unsafe { buffer_ptr.add(pos).as_ref().unwrap() }
+        let buffer_ptr = (self.as_ptr()).add(pos) as *const T;
+        unsafe { buffer_ptr.as_ref().unwrap() }
     }
 
-    pub fn get_val_mut_at<T>(&self, pos: usize) -> &mut T {
+    pub unsafe fn get_val_mut_at<T>(&self, pos: usize) -> &mut T {
         if pos + size_of::<T>() > PAGE_SIZE {
             panic!("Memory out of bound");
         }
-        let buffer_ptr = self.as_ptr() as *mut T;
-        unsafe { buffer_ptr.add(pos).as_mut().unwrap() }
+        let buffer_ptr = self.as_ptr().add(pos) as *mut T;
+        unsafe { buffer_ptr.as_mut().unwrap() }
     }
 
-
-    pub fn write_val_at<T>(&mut self, pos: usize, val: T) {
+    pub unsafe fn write_val_at<T>(&mut self, pos: usize, val: T) {
         if pos + size_of::<T>() > PAGE_SIZE {
             panic!("Memory out of bound");
         }
-        let buffer_ptr = self.as_ptr() as *mut T;
-        unsafe { buffer_ptr.add(pos).write_unaligned(val) }
+        let buffer_ptr = self.as_ptr().add(pos) as *mut T;
+        unsafe { buffer_ptr.write_unaligned(val) }
     }
 }
 
 #[cfg(test)]
 mod page {
-    use crate::table::PAGE_SIZE;
+    use crate::page::PAGE_SIZE;
 
     use super::Page;
 
@@ -86,15 +85,21 @@ mod page {
     #[test]
     fn simple_read_write() {
         let mut page = Page::init();
-        page.write_val_at(0, 12);
-        assert_eq!(page.read_val_at::<u32>(0), 12);
+        unsafe {
+            page.write_val_at(0, 12);
+        }
+        let read_val = unsafe { page.read_val_at::<u32>(0) };
+        assert_eq!(read_val, 12);
     }
 
     #[test]
     fn read_write() {
         let mut page = Page::init();
-        page.write_val_at::<u32>(2, 12);
-        assert_eq!(page.read_val_at::<u32>(2), 12);
+        unsafe {
+            page.write_val_at::<u32>(2, 12);
+        }
+        let read_val = unsafe { page.read_val_at::<u32>(2) };
+        assert_eq!(read_val, 12);
     }
 
     #[test]
@@ -105,7 +110,8 @@ mod page {
             y: 0.0,
             z: -12412,
         };
-        page.write_val_at(1, test_struct.clone());
-        assert_eq!(test_struct, page.read_val_at(1));
+        unsafe{page.write_val_at(1, test_struct.clone());}
+        let read_val = unsafe { page.read_val_at::<TestStruct>(1) };
+        assert_eq!(test_struct, read_val);
     }
 }

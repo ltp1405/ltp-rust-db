@@ -1,4 +1,4 @@
-use super::Pager;
+use crate::page::Pager;
 
 pub struct Table {
     pub row_num: usize,

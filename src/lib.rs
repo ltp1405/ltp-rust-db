@@ -1,6 +1,7 @@
 pub mod meta_commands;
+pub mod page;
 pub mod repl;
 pub mod statements;
-pub mod vm;
 pub mod table;
 mod tests;
+pub mod vm;

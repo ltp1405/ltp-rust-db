@@ -41,7 +41,9 @@ impl<'a> Cursor<'a> {
         let row_offset = self.row_num % ROWS_PER_PAGE;
         let byte_offset = row_offset * ROW_SIZE;
         println!("{}", byte_offset);
-        page.write_val_at(byte_offset, row);
+        unsafe {
+            page.write_val_at(byte_offset, row);
+        }
         if self.end_of_table {
             self.end_of_table = false;
             self.table.row_num += 1;
@@ -57,6 +59,6 @@ impl<'a> Cursor<'a> {
         let row_offset = self.row_num % ROWS_PER_PAGE;
         let byte_offset = row_offset * ROW_SIZE;
         println!("{}", byte_offset);
-        Some(page.get_val_at::<Row>(byte_offset))
+        Some(unsafe { page.get_val_at::<Row>(byte_offset) })
     }
 }

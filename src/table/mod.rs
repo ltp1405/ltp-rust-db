@@ -1,22 +1,20 @@
 use std::mem::size_of;
 
-mod pager;
+pub mod btree;
+mod cursor;
 mod row;
 mod table;
 mod tests;
-mod cursor;
-mod page;
-pub mod btree;
 
+pub use cursor::Cursor;
 pub use row::Row;
 pub use table::Table;
-pub use cursor::Cursor;
-pub use pager::Pager;
+
+use crate::page::PAGE_SIZE;
 
 const COLUMN_USERNAME_SIZE: usize = 32;
 const COLUMN_EMAIL_SIZE: usize = 255;
-const PAGE_SIZE: usize = 1 << 14;
-const TABLE_MAX_PAGES: usize = 100;
+pub const TABLE_MAX_PAGES: usize = 100;
 const ROW_SIZE: usize = size_of_row();
 const ROWS_PER_PAGE: usize = PAGE_SIZE / ROW_SIZE;
 

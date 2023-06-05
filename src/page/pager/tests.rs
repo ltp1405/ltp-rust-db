@@ -1,5 +1,4 @@
-use super::Pager;
-use crate::table::{page::Page, TABLE_MAX_PAGES};
+use crate::{table::TABLE_MAX_PAGES, page::{Pager, Page}};
 
 use serial_test::serial;
 

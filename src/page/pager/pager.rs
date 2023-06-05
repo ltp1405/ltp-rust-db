@@ -3,9 +3,10 @@ use std::{
     io::{Read, Seek, Write},
 };
 
-use crate::table::page::Page;
-use crate::table::PAGE_SIZE;
-use crate::table::TABLE_MAX_PAGES;
+use crate::{
+    page::{Page, PAGE_SIZE},
+    table::TABLE_MAX_PAGES,
+};
 
 pub struct Pager {
     file: File,
@@ -29,8 +30,7 @@ impl Pager {
 
         for _ in 0..pages_in_file {
             let mut new_page = Page::init();
-            file.read_exact(&mut new_page.as_mut_slice())
-                .unwrap();
+            file.read_exact(&mut new_page.as_mut_slice()).unwrap();
             pages.push(Some(new_page));
         }
 
@@ -92,9 +92,7 @@ impl Pager {
             self.file
                 .seek(std::io::SeekFrom::Start((page_num * PAGE_SIZE) as u64))
                 .unwrap();
-            self.file
-                .write(page.as_ref().unwrap().as_slice())
-                .unwrap();
+            self.file.write(page.as_ref().unwrap().as_slice()).unwrap();
         }
     }
 }

@@ -41,6 +41,10 @@ impl Pager {
         Self { file, pages }
     }
 
+    pub fn get_free_page(&mut self) -> Option<&Page> {
+        todo!()
+    }
+
     pub fn get_page(&mut self, page_num: usize) -> Option<&Page> {
         // There are 4 cases that should be handled:
         // - Requested page not allowed (pass limit)

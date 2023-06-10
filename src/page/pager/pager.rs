@@ -45,6 +45,10 @@ impl Pager {
         todo!()
     }
 
+    pub fn get_free_page_mut(&mut self) -> Option<(usize, &mut Page)> {
+        todo!()
+    }
+
     pub fn free_page(&mut self) {}
 
     pub fn get_page(&mut self, page_num: usize) -> Option<&Page> {

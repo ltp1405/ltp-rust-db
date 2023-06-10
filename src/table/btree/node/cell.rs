@@ -1,4 +1,7 @@
-use std::{mem::size_of, slice};
+use std::{
+    mem::{size_of, size_of_val},
+    slice,
+};
 
 use crate::page::Page;
 
@@ -8,8 +11,17 @@ pub struct CellData((u32, Vec<u8>));
 
 /// A key-value pair stored in a page
 pub enum Cell {
-    Interior(*const u8),
-    Leaf(*const u8),
+    TableLeaf {
+        key: u32,
+        not_overflowed_payload: Vec<u8>,
+        overflow_page_head: Option<u32>,
+    },
+    TableInterior {
+        left_child_addr: u32,
+        key: u32,
+    },
+    IndexInterior,
+    IndexLeaf,
 }
 
 type PayloadSize = u32;
@@ -23,18 +35,64 @@ const PAYLOAD_SIZE: (usize, usize) = (KEY.0, size_of::<PayloadSize>());
 const PAYLOAD_START: usize = PAYLOAD_SIZE.0 + PAYLOAD_SIZE.1;
 
 impl Cell {
-    pub unsafe fn at(page: &Page, offset: usize, payload_size: usize) -> Self {
+    pub fn new_table_leaf(
+        key: u32,
+        not_overflowed_payload: Vec<u8>,
+        overflow_page_head: Option<u32>,
+    ) -> Self {
+        Self::TableLeaf {
+            key,
+            not_overflowed_payload,
+            overflow_page_head,
+        }
+    }
+
+    pub fn new_table_interior(key: u32, left_child_addr: u32) -> Self {
+        Self::TableInterior {
+            left_child_addr,
+            key,
+        }
+    }
+
+    pub unsafe fn serialize_to(&self, slice: &mut [u8]) {
+        match self {
+            Self::TableLeaf {
+                key,
+                not_overflowed_payload,
+                overflow_page_head,
+            } => {
+                let ptr = slice as *mut u32;
+                ptr.write(*key);
+                let ptr = ptr as *const u8;
+                let ptr = ptr.add(size_of_val(key));
+                let ptr = ptr as *mut u32;
+                ptr.write(if let Some(head) = overflow_page_head {
+                    *head
+                } else {
+                    0x0
+                });
+                let ptr = ptr as *const u8;
+                let ptr = ptr.add(size_of::<u32>());
+                let ptr = ptr as *mut &[u8];
+                ptr.copy_from_slice(not_overflowed_payload.as_slice());
+            }
+            _ => {}
+        }
+    }
+
+    pub unsafe fn at(page: &Page, offset: usize) -> Self {
         let ptr = page.as_ref() as *const [u8];
         let ptr = ptr as *const u8;
         let ptr = unsafe { ptr.add(offset) };
         let node_type = unsafe { ptr.read_unaligned() };
-        if node_type == NodeType::Leaf as u8 {
+        let node = if node_type == NodeType::Leaf as u8 {
             Self::Leaf(ptr)
         } else if node_type == NodeType::Interior as u8 {
             Self::Interior(ptr)
         } else {
             panic!("Unvalid Node Type");
-        }
+        };
+        node
     }
 
     fn ptr(&self) -> *const u8 {
@@ -46,16 +104,6 @@ impl Cell {
 
     pub unsafe fn key(&self) -> u32 {
         let ptr = self.ptr() as *const u32;
-        unsafe { ptr.read_unaligned() }
-    }
-
-    pub unsafe fn set_payload_size(&mut self, size: u32) {
-        let ptr = unsafe { self.ptr().add(PAYLOAD_SIZE.0) } as *mut u32;
-        unsafe { ptr.write_unaligned(size) }
-    }
-
-    pub unsafe fn payload_size(&self) -> u32 {
-        let ptr = unsafe { self.ptr().add(PAYLOAD_SIZE.0) } as *const u32;
         unsafe { ptr.read_unaligned() }
     }
 

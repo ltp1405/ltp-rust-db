@@ -41,9 +41,11 @@ impl Pager {
         Self { file, pages }
     }
 
-    pub fn get_free_page(&mut self) -> Option<&Page> {
+    pub fn get_free_page(&mut self) -> Option<(usize, &Page)> {
         todo!()
     }
+
+    pub fn free_page(&mut self) {}
 
     pub fn get_page(&mut self, page_num: usize) -> Option<&Page> {
         // There are 4 cases that should be handled:

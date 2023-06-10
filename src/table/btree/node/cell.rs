@@ -46,7 +46,12 @@ impl Cell {
         let payload_size_ptr = page_ptr.add(PAYLOAD_SIZE.0);
         let payload_size = (payload_size_ptr as *const PayloadSize).read_unaligned();
         let overflow_head_ptr = page_ptr.add(OVERFLOW_PAGE_HEAD.0);
-        let overflow_page_head = Some((overflow_head_ptr as *const u32).read_unaligned());
+        let overflow_page_head = (overflow_head_ptr as *const u32).read_unaligned();
+        let overflow_page_head = if overflow_page_head == 0 {
+            None
+        } else {
+            Some(overflow_page_head)
+        };
 
         let payload_ptr = page_ptr.add(PAYLOAD_START);
         let payload = slice_from_raw_parts(
@@ -84,6 +89,15 @@ impl Cell {
         }
     }
 
+    pub fn overflow_page_head(&self) -> Option<u32> {
+        match self {
+            Self::TableLeaf {
+                overflow_page_head, ..
+            } => *overflow_page_head,
+            _ => unreachable!(),
+        }
+    }
+
     pub unsafe fn serialize_to(&self, slice: &mut [u8]) {
         match self {
             Self::TableLeaf {
@@ -114,7 +128,7 @@ impl Cell {
                         .unwrap();
                 payload_slice.copy_from_slice(not_overflowed_payload.as_slice());
             }
-            _ => {}
+            _ => unimplemented!(),
         }
     }
 
@@ -155,7 +169,7 @@ impl Cell {
         KEY.1 as u32
     }
 
-    pub fn size(&self) -> u32 {
+    pub fn size(&self) -> usize {
         match self {
             Self::TableLeaf {
                 key,
@@ -163,17 +177,16 @@ impl Cell {
                 not_overflowed_payload,
                 overflow_page_head,
             } => {
-                (self.key_size() as usize
+                self.key_size() as usize
                     + size_of::<u32>()
                     + size_of::<u32>()
-                    + not_overflowed_payload.len()) as u32
+                    + not_overflowed_payload.len()
             }
             _ => unimplemented!(),
         }
     }
 }
 
-#[cfg(test)]
 mod tests {
     use crate::{
         page::Pager,
@@ -209,4 +222,30 @@ mod tests {
         assert_eq!(cell2.payload(), payload);
         assert_eq!(cell2.key(), 12);
     }
+
+    // #[test]
+    // fn node_with_overflow() {
+    //     let payload: Vec<u8> = vec![1, 2, 3].repeat(1000);
+    //     let mut pager = PAGER.lock().unwrap();
+    //     let cell = Cell::new_table_leaf(12, payload.len() as u32, payload.clone(), Some(1));
+    //     let page = pager.get_page_mut(0).unwrap();
+
+    //     let slice = &mut page[0 as usize..0 + cell.size() as usize];
+    //     unsafe { cell.serialize_to(slice) }
+
+    //     let mut pager = PAGER.lock().unwrap();
+    //     let overflow_page = pager.get_page_mut(1).unwrap();
+
+    //     let cell2 = unsafe { Cell::table_leaf_at(page, 0, 0) };
+
+    //     unsafe {
+    //         overflow_page.write_val_at(0, 1000);
+    //     }
+
+    //     println!("{:?}", cell2);
+    //     println!("{:?}", cell);
+    //     assert_eq!(cell2.payload_size(), payload.len());
+    //     assert_eq!(cell2.payload(), payload);
+    //     assert_eq!(cell2.key(), 12);
+    // }
 }

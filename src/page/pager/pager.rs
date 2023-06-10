@@ -11,6 +11,7 @@ use crate::{
 pub struct Pager {
     file: File,
 
+    pages_num: usize,
     // Pages in memory
     pages: Vec<Option<Page>>,
 }
@@ -35,21 +36,25 @@ impl Pager {
         }
 
         for _ in pages_in_file..TABLE_MAX_PAGES as u64 {
-            pages.push(None);
+            pages.push(None)
         }
 
-        Self { file, pages }
+        Self {
+            file,
+            pages,
+            pages_num: pages_in_file as usize,
+        }
     }
 
-    pub fn get_free_page(&mut self) -> Option<(usize, &Page)> {
-        todo!()
+    pub fn get_free_page(&mut self) -> Option<usize> {
+        let rs = Some(self.pages_num);
+        self.pages_num += 1;
+        rs
     }
 
     pub fn get_free_page_mut(&mut self) -> Option<(usize, &mut Page)> {
         todo!()
     }
-
-    pub fn free_page(&mut self) {}
 
     pub fn get_page(&mut self, page_num: usize) -> Option<&Page> {
         // There are 4 cases that should be handled:
@@ -61,7 +66,11 @@ impl Pager {
         if page_num > TABLE_MAX_PAGES {
             return None;
         }
-        let page = self.pages[page_num].get_or_insert(Page::init());
+
+        let page = self.pages[page_num].get_or_insert_with(|| {
+            self.pages_num += 1;
+            Page::init()
+        });
         let file_length = self.file.seek(std::io::SeekFrom::End(0)).unwrap();
         // Page not initialized yet
         let page = if (page_num + 1) * PAGE_SIZE > file_length as usize {
@@ -81,7 +90,10 @@ impl Pager {
         if page_num > TABLE_MAX_PAGES {
             return None;
         }
-        let page = self.pages[page_num].get_or_insert(Page::init());
+        let page = self.pages[page_num].get_or_insert_with(|| {
+            self.pages_num += 1;
+            Page::init()
+        });
         let file_length = self.file.seek(std::io::SeekFrom::End(0)).unwrap();
         // Page not initialized yet
         let page = if (page_num + 1) * PAGE_SIZE > file_length as usize {

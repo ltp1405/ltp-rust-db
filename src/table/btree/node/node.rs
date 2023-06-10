@@ -1,5 +1,6 @@
 use std::{
     mem::size_of,
+    ptr::slice_from_raw_parts_mut,
     rc::Rc,
     sync::{Arc, Mutex},
 };
@@ -77,6 +78,9 @@ impl<'a> Node<'a> {
     }
 
     fn cell(&self, cell_num: u32) -> Cell {
+        if cell_num > self.num_cells() {
+            panic!("Cell index out of bound");
+        }
         let offset = self.cell_pointer(cell_num);
         unsafe { Cell::table_leaf_at(&self.page, offset as usize, 0) }
     }
@@ -153,63 +157,107 @@ impl<'a> Node<'a> {
         todo!()
     }
 
-    pub fn need_split(&self, payload_size: u32) -> bool {
-        false
-    }
-
     pub fn insert(&mut self, key: u32, payload: Vec<u8>) {
         let payload_size = payload.len();
-        let (not_overflowed_payload, remaining_payload) = self.fragment_payload(payload);
-        let num_cells = self.num_cells();
-        // if self.need_split(payload_size as u32) {
-        //     let is_root = self.is_root();
-        //     if is_root {
-        //         self.split();
-        //     } else {
-        //         let mut pager = self.pager.lock().unwrap();
-        //         let mut parent_page = pager.get_page_mut(self.parent_pointer() as usize).unwrap();
-        //         let mut parent_node = Node::new(&mut parent_page, self.pager.clone());
-        //         parent_node.insert(key, payload);
-        //     }
-        // }
+        let overflow_size = self.overflow_amount(payload_size as u32);
+        let (not_overflowed_payload, overflow_head) = match overflow_size {
+            Some(overflow_size) => {
+                if payload_size as u32 - overflow_size
+                    < self.min_threshold_for_non_overflow() as u32
+                {
+                    self.split();
+                    todo!("SPLIT HERE")
+                } else {
+                    let (not_overflowed_payload, overflow_payload) =
+                        payload.split_at(payload_size - overflow_size as usize);
+                    let page_num = self.pager.lock().unwrap().get_free_page().unwrap() as u32;
+                    self.handle_overflow(page_num, overflow_payload);
+                    (not_overflowed_payload, Some(page_num))
+                }
+            }
+            None => (payload.as_slice(), None),
+        };
         let cell_num: u32 = if let Slot::Hole(hole) = self.search(key) {
-            println!("{}", hole);
             hole
         } else {
             panic!("Key already inserted");
         };
-        let cell = Cell::new_table_leaf(key, payload_size as u32, not_overflowed_payload, None);
+        println!("Payload size {:?}", not_overflowed_payload.len());
+        let cell = Cell::new_table_leaf(
+            key,
+            payload_size as u32,
+            not_overflowed_payload.to_vec(),
+            overflow_head,
+        );
         println!("{:?}", cell);
 
-        let payload_start = self.cell_content_start() - cell.size();
+        let cell_start = self.cell_content_start() as usize - cell.size();
 
-        println!(
-            "{:?}-{:?}",
-            payload_start as usize,
-            (payload_start + unsafe { cell.size() }) as usize
-        );
-        let slice = &mut self.page
-            [payload_start as usize..(payload_start + unsafe { cell.size() }) as usize];
+        let slice = &mut self.page[cell_start as usize..(cell_start + cell.size()) as usize];
+        assert_eq!(slice.len(), cell.size());
         unsafe {
             cell.serialize_to(slice);
         }
 
-        self.set_cell_pointer(cell_num, payload_start);
+        self.set_cell_pointer(cell_num, cell_start as u32);
 
-        self.set_cell_content_start(payload_start);
+        self.set_cell_content_start(cell_start as u32);
         self.set_num_cells(self.num_cells() + 1);
     }
 
-    pub fn get(&self, key: u32) -> &[u8] {
-        todo!()
+    fn handle_overflow(&self, overflow_head: u32, remaining_payloads: &[u8]) {
+        let start_offset = size_of::<u32>();
+        let page_available_size = PAGE_SIZE - size_of::<u32>();
+        let pages_needed = remaining_payloads.len() / (PAGE_SIZE - size_of::<u32>());
+        let mut pages = Vec::new();
+        pages.push(overflow_head as usize);
+        {
+            let mut pager = self.pager.lock().unwrap();
+            pages.resize_with(pages_needed, || pager.get_free_page().unwrap());
+        }
+        for (i, page_addr) in pages.iter().enumerate() {
+            let mut pager = self.pager.lock().unwrap();
+            let page = pager.get_page_mut(*page_addr).unwrap();
+
+            let start = i * page_available_size;
+            let end = start + page_available_size;
+
+            let next_page = pages.get(i + 1);
+            if next_page.is_some() {
+                unsafe {
+                    page.write_val_at(0, next_page);
+                }
+            }
+
+            let slice = &mut page[start_offset..PAGE_SIZE];
+            slice.copy_from_slice(&remaining_payloads[start..end]);
+        }
+        let remain = remaining_payloads.len() % page_available_size;
+        let start = pages_needed * page_available_size;
+        let end = start + remain;
+        let page_addr = {
+            let mut pager = self.pager.lock().unwrap();
+            pager.get_free_page().unwrap()
+        };
+        let mut pager = self.pager.lock().unwrap();
+        let page = pager.get_page_mut(page_addr).unwrap();
+        let slice = &mut page[start_offset..start_offset + remain];
+        slice.copy_from_slice(&remaining_payloads[start..end]);
     }
 
-    fn fragment_payload(&self, payload: Vec<u8>) -> (Vec<u8>, Option<Vec<Vec<u8>>>) {
-        (payload, None)
+    fn overflow_amount(&self, payload_size: u32) -> Option<u32> {
+        let free_size = self.free_size();
+        if payload_size < free_size as u32 - 12 {
+            None
+        } else {
+            Some(payload_size - free_size as u32 + 200)
+        }
     }
 
-    fn overflow_threshold(&self) {
-
+    fn min_threshold_for_non_overflow(&self) -> usize {
+        let m = ((PAGE_SIZE - 12) * 32 / 255) - 23;
+        println!("{}", m);
+        m
     }
 
     fn cells_content(&self) -> &[u8] {
@@ -244,7 +292,7 @@ impl<'a> Node<'a> {
 #[cfg(test)]
 mod node {
     lazy_static! {
-        static ref PAGER: Arc<Mutex<Pager>> = { Arc::new(Mutex::new(Pager::init("testdb"))) };
+        static ref PAGER: Arc<Mutex<Pager>> = Arc::new(Mutex::new(Pager::init("testdb")));
     }
 
     use std::sync::{Arc, Mutex};
@@ -281,44 +329,6 @@ mod node {
         node.set_num_cells(10);
         assert_eq!(node.num_cells(), 10);
     }
-
-    // #[test]
-    // fn insert_with_payload() {
-    //     let mut page = Page::init();
-    //     let mut node = Node::new(&mut page, PAGER.clone());
-    //     let mut key_list = vec![32523, 2, 12, 532, 32, 235];
-    //     let val: Vec<u8> = vec![1, 2, 3];
-
-    //     for v in &key_list {
-    //         node.insert(*v, val.clone());
-    //     }
-
-    //     for i in 0..node.num_cells() {
-    //         assert_eq!(val, node.cell(i).payload());
-    //     }
-    // }
-
-    // #[test]
-    // fn insert() {
-    //     let mut page = Page::init();
-    //     let mut node = Node::new(&mut page, PAGER.clone());
-    //     let mut val_list = vec![32523, 2, 12, 532, 32, 235];
-    //     let val: Vec<u8> = vec![1, 2, 3];
-
-    //     for v in &val_list {
-    //         node.insert(*v, val.clone());
-    //     }
-
-    //     val_list.sort();
-
-    //     let mut key_list = Vec::new();
-    //     for i in 0..node.num_cells() {
-    //         key_list.push(node.cell(i).key());
-    //     }
-
-    //     assert_eq!(val_list, key_list);
-    // }
-    //
 
     #[test]
     fn cell_pointer() {
@@ -362,16 +372,65 @@ mod node {
     }
 
     #[test]
+    fn two_big_payload() {
+        let mut page = Page::init();
+        let mut node = Node::new(&mut page, PAGER.clone());
+        node.set_cell_content_start(PAGE_SIZE as u32);
+        let big_payload = [1, 2, 3].repeat(1200);
+        node.insert(12, big_payload.clone());
+        node.insert(14, big_payload.clone());
+        assert_eq!(node.cell(0).key(), 12);
+        assert_eq!(&node.cell(0).payload()[0..600], &big_payload[0..600]);
+    }
+
+    #[test]
+    fn big_and_overflow() {
+        let pager = PAGER.clone();
+        let page = {
+            let mut pager = pager.lock().unwrap();
+            pager.get_free_page().unwrap()
+        };
+        let mut pager = pager.lock().unwrap();
+        let mut page = pager.get_page_mut(page).unwrap();
+        let mut node = Node::new(&mut page, PAGER.clone());
+        node.set_cell_content_start(PAGE_SIZE as u32);
+        let big_payload = [1, 2, 3].repeat(1000);
+        node.insert(12, big_payload.clone());
+        node.insert(14, big_payload.clone());
+        assert_eq!(node.cell(0).key(), 12);
+        assert_eq!(&node.cell(0).payload()[0..600], &big_payload[0..600]);
+        assert_ne!(node.cell(1).overflow_page_head(), None);
+
+        // let overflow_page = node.cell(1).overflow_page_head().unwrap();
+        // let pager = PAGER.clone();
+        // let mut pager = pager.lock().unwrap();
+        // println!("{:?}", pager.get_page(overflow_page as usize));
+    }
+
+    #[test]
+    fn only_fit_one_cell() {
+        let mut page = Page::init();
+        let mut node = Node::new(&mut page, PAGER.clone());
+        node.set_cell_content_start(PAGE_SIZE as u32);
+        let big_payload = [1, 2, 3].repeat(1250);
+        let small_payload = [1].repeat(100);
+        node.insert(12, big_payload.clone());
+        node.insert(14, small_payload.clone());
+        assert_eq!(node.cell(0).key(), 12);
+        assert_eq!(&node.cell(0).payload()[0..600], &big_payload[0..600]);
+        assert_eq!(node.cell(1).key(), 14);
+        assert_eq!(&node.cell(1).payload(), &small_payload);
+    }
+
+    #[test]
     fn insert_with_overflow() {
         let mut page = Page::init();
         let mut node = Node::new(&mut page, PAGER.clone());
         node.set_cell_content_start(PAGE_SIZE as u32);
-        node.insert(12, vec![1, 2, 3]);
-        node.insert(14, vec![4, 5, 6, 7]);
-        println!("{:?}", node.cells_content());
+        let big_payload = [1, 2, 3].repeat(2000);
+        node.insert(12, big_payload.clone());
         assert_eq!(node.cell(0).key(), 12);
-        assert_eq!(node.cell(1).key(), 14);
-        assert_eq!(node.cell(0).payload(), vec![1, 2, 3]);
-        assert_eq!(node.cell(1).payload(), vec![4, 5, 6, 7]);
+        assert_eq!(&node.cell(0).payload()[0..600], &big_payload[0..600]);
+        assert_ne!(node.free_size(), PAGE_SIZE - 12);
     }
 }

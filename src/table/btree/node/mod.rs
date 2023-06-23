@@ -1,5 +1,9 @@
 mod cell;
 mod node;
+mod btree;
+
+#[cfg(test)]
+mod tests;
 
 pub use node::Node;
 

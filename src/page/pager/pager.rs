@@ -8,6 +8,7 @@ use crate::{
     table::TABLE_MAX_PAGES,
 };
 
+#[derive(Debug)]
 pub struct Pager {
     file: File,
 

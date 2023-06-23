@@ -5,8 +5,6 @@ mod btree;
 #[cfg(test)]
 mod tests;
 
-pub use node::Node;
-
 use std::mem::size_of;
 
 pub type LeafNodeKey = u32;

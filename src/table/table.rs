@@ -1,4 +1,4 @@
-use crate::page::Pager;
+use ltp_rust_db_page::{page::Page, pager::Pager};
 
 pub struct Table {
     pub row_num: usize,

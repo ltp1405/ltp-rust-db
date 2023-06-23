@@ -1,12 +1,13 @@
+#[cfg(test)]
+mod tests;
+
+const TABLE_MAX_PAGES: usize = 1000;
 use std::{
     fs::File,
     io::{Read, Seek, Write},
 };
 
-use crate::{
-    page::{Page, PAGE_SIZE},
-    table::TABLE_MAX_PAGES,
-};
+use crate::page::{Page, PAGE_SIZE};
 
 #[derive(Debug)]
 pub struct Pager {
@@ -32,7 +33,9 @@ impl Pager {
 
         for _ in 0..pages_in_file {
             let mut new_page = Page::init();
-            file.read_exact(&mut new_page.as_mut_slice()).unwrap();
+            let mut buf = vec![];
+            file.read_exact(&mut buf).unwrap();
+            new_page.write_buf_at(0, &buf);
             pages.push(Some(new_page));
         }
 
@@ -80,7 +83,9 @@ impl Pager {
             self.file
                 .seek(std::io::SeekFrom::Start((PAGE_SIZE * page_num) as u64))
                 .unwrap();
-            self.file.read(page.as_mut_slice()).unwrap();
+            let mut buf = vec![];
+            self.file.read_exact(&mut buf).unwrap();
+            page.write_buf_at(0, &buf);
             page
         };
 
@@ -103,7 +108,9 @@ impl Pager {
             self.file
                 .seek(std::io::SeekFrom::Start((PAGE_SIZE * page_num) as u64))
                 .unwrap();
-            self.file.read(page.as_mut_slice()).unwrap();
+            let mut buf = vec![];
+            self.file.read_exact(&mut buf).unwrap();
+            page.write_buf_at(0, &buf);
             page
         };
 
@@ -115,7 +122,9 @@ impl Pager {
             self.file
                 .seek(std::io::SeekFrom::Start((page_num * PAGE_SIZE) as u64))
                 .unwrap();
-            self.file.write(page.as_ref().unwrap().as_slice()).unwrap();
+            self.file
+                .write(page.as_ref().unwrap().read_buf_at(0, PAGE_SIZE))
+                .unwrap();
         }
     }
 }

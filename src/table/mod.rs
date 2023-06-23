@@ -10,7 +10,7 @@ pub use cursor::Cursor;
 pub use row::Row;
 pub use table::Table;
 
-use crate::page::PAGE_SIZE;
+use ltp_rust_db_page::page::{Page, PAGE_SIZE};
 
 const COLUMN_USERNAME_SIZE: usize = 32;
 const COLUMN_EMAIL_SIZE: usize = 255;

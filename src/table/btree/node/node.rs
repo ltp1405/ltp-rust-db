@@ -5,7 +5,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::page::{Page, Pager, PAGE_SIZE};
+use ltp_rust_db_page::{page::Page, pager::Pager};
 
 use super::{
     cell::Cell, CellPointer, CellsCount, NodePointer, NodeType, CELL_CONTENT_START, CELL_NUMS,
@@ -15,9 +15,10 @@ use super::{
 
 /// Each node of the btree is contained inside 1 page
 #[derive(Debug)]
-pub struct Node<'a> {
+pub struct Node {
+    node_type: NodeType,
     pager: Arc<Mutex<Pager>>,
-    page: &'a mut Page,
+    page_num: NodePointer,
 }
 
 #[derive(Debug, PartialEq)]
@@ -36,118 +37,109 @@ enum InsertResult {
 }
 
 impl<'a> Node<'a> {
-    // pub fn new(page_num: usize, pager: Arc<Mutex<Pager>>) -> Self {
-    //     let pager_clone = pager.clone().lock().unwrap();
-    //     let page = pager_clone.get_page_mut(page_num).unwrap();
-    //     Node { page, pager }
-    // }
-    // pub fn is_root(&self) -> bool {
-    //     unsafe { self.page.read_val_at(IS_ROOT.0) }
-    // }
+    pub fn new(page_num: usize, pager: Arc<Mutex<Pager>>) -> Self {
+        let pager_clone = pager.clone().lock().unwrap();
+        let page = pager_clone.get_page_mut(page_num).unwrap();
+        Node { page, pager }
+    }
 
-    // pub fn set_is_root(&mut self, is_root: bool) {
-    //     unsafe {
-    //         self.page.write_val_at(IS_ROOT.0, is_root);
-    //     }
-    // }
+    pub fn node_type(&self) -> NodeType {
+        unsafe { self.page.read_val_at(NODE_TYPE.0) }
+    }
 
-    // pub fn node_type(&self) -> NodeType {
-    //     unsafe { self.page.read_val_at(NODE_TYPE.0) }
-    // }
+    pub fn set_node_type(&mut self, node_type: NodeType) {
+        unsafe {
+            self.page.write_val_at(NODE_TYPE.0, node_type);
+        }
+    }
 
-    // pub fn set_node_type(&mut self, node_type: NodeType) {
-    //     unsafe {
-    //         self.page.write_val_at(NODE_TYPE.0, node_type);
-    //     }
-    // }
+    pub fn parent_pointer(&self) -> u32 {
+        unsafe { self.page.read_val_at(PARENT_POINTER.0) }
+    }
 
-    // pub fn parent_pointer(&self) -> u32 {
-    //     unsafe { self.page.read_val_at(PARENT_POINTER.0) }
-    // }
+    pub fn set_parent_pointer(&mut self, parent_pointer: u32) {
+        unsafe {
+            self.page.write_val_at(PARENT_POINTER.0, parent_pointer);
+        }
+    }
 
-    // pub fn set_parent_pointer(&mut self, parent_pointer: u32) {
-    //     unsafe {
-    //         self.page.write_val_at(PARENT_POINTER.0, parent_pointer);
-    //     }
-    // }
+    pub fn num_cells(&self) -> CellsCount {
+        unsafe { self.page.read_val_at(CELL_NUMS.0) }
+    }
 
-    // pub fn num_cells(&self) -> CellsCount {
-    //     unsafe { self.page.read_val_at(CELL_NUMS.0) }
-    // }
+    pub fn set_num_cells(&mut self, num_cells: u32) {
+        unsafe {
+            self.page.write_val_at(CELL_NUMS.0, num_cells);
+        }
+    }
 
-    // pub fn set_num_cells(&mut self, num_cells: u32) {
-    //     unsafe {
-    //         self.page.write_val_at(CELL_NUMS.0, num_cells);
-    //     }
-    // }
+    fn cell_pointer_offset(&self, cell_num: u32) -> usize {
+        let val = CELL_POINTERS_ARRAY_OFFSET + CELL_POINTER_SIZE * cell_num as usize;
+        val
+    }
 
-    // fn cell_pointer_offset(&self, cell_num: u32) -> usize {
-    //     let val = CELL_POINTERS_ARRAY_OFFSET + CELL_POINTER_SIZE * cell_num as usize;
-    //     val
-    // }
+    fn cell(&self, cell_num: u32) -> Cell {
+        if cell_num > self.num_cells() {
+            panic!("Cell index out of bound");
+        }
+        let offset = self.cell_pointer(cell_num);
+        unsafe { Cell::table_leaf_at(&self.page, offset as usize, 0) }
+    }
 
-    // fn cell(&self, cell_num: u32) -> Cell {
-    //     if cell_num > self.num_cells() {
-    //         panic!("Cell index out of bound");
-    //     }
-    //     let offset = self.cell_pointer(cell_num);
-    //     unsafe { Cell::table_leaf_at(&self.page, offset as usize, 0) }
-    // }
-
-    // pub fn search(&self, search_key: u32) -> Slot {
-    //     let num_cells = self.num_cells();
-    //     if num_cells == 0 {
-    //         return Slot::Hole(0);
-    //     }
-    //     let mut hi = num_cells;
-    //     let mut lo = 0;
-    //     loop {
-    //         let mid = (lo + hi) / 2;
-    //         let mid_key = self.cell(mid).key();
-    //         if search_key < mid_key {
-    //             if mid == 0 {
-    //                 return Slot::Hole(0);
-    //             } else if search_key > self.cell(mid - 1).key() {
-    //                 return Slot::Hole(mid);
-    //             }
-    //             hi = mid;
-    //         } else if search_key > mid_key {
-    //             if mid == num_cells - 1 {
-    //                 return Slot::Hole(num_cells);
-    //             }
-    //             lo = mid;
-    //         } else {
-    //             return Slot::Cell(mid);
-    //         }
-    //     }
-    // }
-    // pub fn node_split(node: Node<'a>) -> (u32, NodePointer, NodePointer) {
-    //     todo!()
-    //     // let node_type = node.node_type();
-    //     // let left = node;
-    //     // match node_type {
-    //     //     NodeType::Leaf => {
-    //     //         let (l, r) = split_in_half(vals);
-    //     //         let mid_key = r.first().unwrap().0.clone();
-    //     //         let l = Box::new(SimpleNode::Leaf { vals: l });
-    //     //         let r = Box::new(SimpleNode::Leaf { vals: r });
-    //     //         (mid_key, l, r)
-    //     //     }
-    //     //     NodeType::Interior => {
-    //     //         let (l, mid, r) = split_in_half_with_mid(vals);
-    //     //         let mid_key = mid.0;
-    //     //         let l = Box::new(SimpleNode::Interior {
-    //     //             vals: l,
-    //     //             left_child: Some(mid.1),
-    //     //         });
-    //     //         let r = Box::new(SimpleNode::Interior {
-    //     //             vals: r,
-    //     //             left_child: Some(left_child.unwrap()),
-    //     //         });
-    //     //         (mid_key, l, r)
-    //     //     }
-    //     // }
-    // }
+    pub fn search(&self, search_key: u32) -> Slot {
+        let num_cells = self.num_cells();
+        if num_cells == 0 {
+            return Slot::Hole(0);
+        }
+        let mut hi = num_cells;
+        let mut lo = 0;
+        loop {
+            let mid = (lo + hi) / 2;
+            let mid_key = self.cell(mid).key();
+            if search_key < mid_key {
+                if mid == 0 {
+                    return Slot::Hole(0);
+                } else if search_key > self.cell(mid - 1).key() {
+                    return Slot::Hole(mid);
+                }
+                hi = mid;
+            } else if search_key > mid_key {
+                if mid == num_cells - 1 {
+                    return Slot::Hole(num_cells);
+                }
+                lo = mid;
+            } else {
+                return Slot::Cell(mid);
+            }
+        }
+    }
+    pub fn node_split(node: Node<'a>) -> (u32, NodePointer, NodePointer) {
+        todo!()
+        // let node_type = node.node_type();
+        // let left = node;
+        // match node_type {
+        //     NodeType::Leaf => {
+        //         let (l, r) = split_in_half(vals);
+        //         let mid_key = r.first().unwrap().0.clone();
+        //         let l = Box::new(SimpleNode::Leaf { vals: l });
+        //         let r = Box::new(SimpleNode::Leaf { vals: r });
+        //         (mid_key, l, r)
+        //     }
+        //     NodeType::Interior => {
+        //         let (l, mid, r) = split_in_half_with_mid(vals);
+        //         let mid_key = mid.0;
+        //         let l = Box::new(SimpleNode::Interior {
+        //             vals: l,
+        //             left_child: Some(mid.1),
+        //         });
+        //         let r = Box::new(SimpleNode::Interior {
+        //             vals: r,
+        //             left_child: Some(left_child.unwrap()),
+        //         });
+        //         (mid_key, l, r)
+        //     }
+        // }
+    }
 
     pub fn get_children(&self) -> Vec<NodePointer> {
         todo!()
@@ -404,7 +396,9 @@ impl<'a> Node<'a> {
 mod node {
     use std::sync::{Arc, Mutex};
 
-    use crate::{page::Pager, table::btree::node::NodeType};
+    use ltp_rust_db_page::pager::Pager;
+
+    use crate::table::btree::node::NodeType;
 
     use super::Node;
 

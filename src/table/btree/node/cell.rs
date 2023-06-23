@@ -3,7 +3,7 @@ use std::{
     ptr::{slice_from_raw_parts, slice_from_raw_parts_mut},
 };
 
-use crate::page::Page;
+use ltp_rust_db_page::page::{Page, PAGE_SIZE};
 
 use super::{NodePointer, NodeType};
 
@@ -41,7 +41,7 @@ const PAYLOAD_START: usize = OVERFLOW_PAGE_HEAD.0 + OVERFLOW_PAGE_HEAD.1;
 
 impl Cell {
     pub unsafe fn table_leaf_at(page: &Page, offset: usize, overflow_amount: usize) -> Self {
-        let page_ptr = page.as_ptr().add(offset);
+        let page_ptr = page.read_buf_at(0, PAGE_SIZE).as_ptr().add(offset);
         let key = (page_ptr as *const u32).read_unaligned();
         let payload_size_ptr = page_ptr.add(PAYLOAD_SIZE.0);
         let payload_size = (payload_size_ptr as *const PayloadSize).read_unaligned();
@@ -188,10 +188,7 @@ impl Cell {
 }
 
 mod tests {
-    use crate::{
-        page::Pager,
-        table::btree::node::cell::{OVERFLOW_PAGE_HEAD, PAYLOAD_SIZE, PAYLOAD_START},
-    };
+    use crate::table::btree::node::cell::{OVERFLOW_PAGE_HEAD, PAYLOAD_SIZE, PAYLOAD_START};
 
     use super::Cell;
 
@@ -199,9 +196,13 @@ mod tests {
         static ref PAGER: Arc<Mutex<Pager>> = Arc::new(Mutex::new(Pager::init("celltest")));
     }
 
-    use std::sync::{Arc, Mutex};
+    use std::{
+        ptr::slice_from_raw_parts_mut,
+        sync::{Arc, Mutex},
+    };
 
     use lazy_static::lazy_static;
+    use ltp_rust_db_page::pager::Pager;
 
     #[test]
     fn simple_node() {
@@ -209,7 +210,7 @@ mod tests {
         let mut pager = PAGER.lock().unwrap();
         let cell = Cell::new_table_leaf(12, payload.len() as u32, payload.clone(), None);
         let page = pager.get_page_mut(0).unwrap();
-        let slice = &mut page[0 as usize..0 + cell.size() as usize];
+        let slice = &mut page.get_buf_mut_at(0, cell.size());
         unsafe { cell.serialize_to(slice) }
         println!("{:?}", PAYLOAD_SIZE);
         println!("{:?}", OVERFLOW_PAGE_HEAD);

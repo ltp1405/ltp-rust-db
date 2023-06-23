@@ -1,9 +1,11 @@
-use crate::{table::TABLE_MAX_PAGES, page::{Pager, Page}};
-
 use serial_test::serial;
 
 static TEST_FILE: &str = "test_pager.db";
 use std::fs::File;
+
+use crate::{page::Page, page::PAGE_SIZE, pager::Pager};
+
+use super::TABLE_MAX_PAGES;
 
 // static INIT: Once = Once::new();
 
@@ -19,26 +21,31 @@ fn init() {
     let mut pager = Pager::init(TEST_FILE);
     let empty_page = Page::init();
     let page = pager.get_page(0);
-    assert_eq!(&empty_page, page.unwrap());
+    assert_eq!(
+        empty_page.read_buf_at(0, PAGE_SIZE),
+        page.unwrap().read_buf_at(0, PAGE_SIZE)
+    );
 }
 
 #[test]
 #[serial]
 fn modify_all_page() {
-    for i in 0..TABLE_MAX_PAGES {
+    (0..TABLE_MAX_PAGES).for_each(|i| {
         initialize();
         let mut pager = Pager::init(TEST_FILE);
         let page = pager.get_page_mut(i).unwrap();
-        for e in page.iter_mut() {
+        let mut buf = [0; PAGE_SIZE];
+        for e in buf.iter_mut() {
             *e = 0x1;
         }
+        page.write_buf_at(0, &buf);
         pager.flush();
 
         let page = pager.get_page(i).unwrap();
-        for e in page.iter() {
+        for e in page.read_buf_at(0, PAGE_SIZE) {
             assert_eq!(e, &0x1);
         }
-    }
+    });
 }
 
 #[test]
@@ -47,13 +54,15 @@ fn modify_a_page() {
     initialize();
     let mut pager = Pager::init(TEST_FILE);
     let page = pager.get_page_mut(0).unwrap();
-    for e in page.iter_mut() {
+    let mut buf = [0; PAGE_SIZE];
+    for e in buf.iter_mut() {
         *e = 0x1;
     }
+    page.write_buf_at(0, &buf);
     pager.flush();
 
     let page = pager.get_page(0).unwrap();
-    for e in page.iter() {
+    for e in page.read_buf_at(0, PAGE_SIZE) {
         assert_eq!(e, &0x1);
     }
 }
@@ -73,18 +82,20 @@ fn modify_save_load() {
     initialize();
     let mut pager = Pager::init(TEST_FILE);
     let page = pager.get_page_mut(0).unwrap();
-    for e in page.iter_mut() {
+    let mut buf = [0; PAGE_SIZE];
+    for e in buf.iter_mut() {
         *e = 0x1;
     }
+    page.write_buf_at(0, &buf);
     pager.flush();
 
     drop(pager);
 
     let mut pager = Pager::init(TEST_FILE);
     let page = pager.get_page(0).unwrap();
-    for e in page.iter() {
-        assert_eq!(e, &0x1);
-    }
+    let buf = [0x1; PAGE_SIZE];
+    let page_buf = page.read_buf_at(0, PAGE_SIZE);
+    assert_eq!(buf, page_buf);
 }
 
 #[test]
@@ -94,19 +105,19 @@ fn modify_save_load_all_pages() {
     let mut pager = Pager::init(TEST_FILE);
     for i in 0..TABLE_MAX_PAGES {
         let page = pager.get_page_mut(i).unwrap();
-        for e in page.iter_mut() {
-            *e = i as u8;
+        let mut buf = [0; PAGE_SIZE];
+        for e in buf.iter_mut() {
+            *e = (i % (2 << 8)) as u8;
         }
+        page.write_buf_at(0, &buf);
     }
     pager.flush();
 
     let mut pager = Pager::init(TEST_FILE);
     for i in 0..TABLE_MAX_PAGES {
         let page = pager.get_page(i).unwrap();
-        for e in page.iter() {
-            if *e != i as u8 {
-                panic!("Error at page {}", i);
-            }
+        for e in page.read_buf_at(0, PAGE_SIZE) {
+            assert_eq!(*e, (i % (2 << 8)) as u8, "Error at page {}", i);
         }
     }
 }

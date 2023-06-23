@@ -1,9 +1,5 @@
 mod cell;
 mod node;
-mod btree;
-
-#[cfg(test)]
-mod tests;
 
 use std::mem::size_of;
 

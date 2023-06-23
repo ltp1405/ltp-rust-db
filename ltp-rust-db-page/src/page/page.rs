@@ -7,7 +7,7 @@ use std::{
 
 use super::PAGE_SIZE;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Page {
     buffer: Arc<RwLock<Box<[u8; PAGE_SIZE]>>>,
 }

@@ -5,7 +5,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use ltp_rust_db_page::{page::Page, pager::Pager};
+use ltp_rust_db_page::{
+    page::{Page, PAGE_SIZE},
+    pager::Pager,
+};
 
 use super::{
     cell::Cell, CellPointer, CellsCount, NodePointer, NodeType, CELL_CONTENT_START, CELL_NUMS,
@@ -16,7 +19,6 @@ use super::{
 /// Each node of the btree is contained inside 1 page
 #[derive(Debug)]
 pub struct Node {
-    node_type: NodeType,
     pager: Arc<Mutex<Pager>>,
     page_num: NodePointer,
 }
@@ -36,40 +38,59 @@ enum InsertResult {
     Splitted(NodePointer, NodePointer, NodePointer),
 }
 
-impl<'a> Node<'a> {
+impl Node {
     pub fn new(page_num: usize, pager: Arc<Mutex<Pager>>) -> Self {
-        let pager_clone = pager.clone().lock().unwrap();
-        let page = pager_clone.get_page_mut(page_num).unwrap();
-        Node { page, pager }
+        Node {
+            page_num: page_num as u32,
+            pager,
+        }
     }
 
     pub fn node_type(&self) -> NodeType {
-        unsafe { self.page.read_val_at(NODE_TYPE.0) }
+        let page = self
+            .pager
+            .lock()
+            .unwrap()
+            .get_page(self.page_num as usize)
+            .unwrap();
+        unsafe { page.read_val_at(NODE_TYPE.0) }
     }
 
-    pub fn set_node_type(&mut self, node_type: NodeType) {
-        unsafe {
-            self.page.write_val_at(NODE_TYPE.0, node_type);
-        }
-    }
+    // pub fn set_node_type(&mut self, node_type: NodeType) {
+    //     unsafe {
+    //         self.page.write_val_at(NODE_TYPE.0, node_type);
+    //     }
+    // }
 
-    pub fn parent_pointer(&self) -> u32 {
-        unsafe { self.page.read_val_at(PARENT_POINTER.0) }
-    }
+    // pub fn parent_pointer(&self) -> u32 {
+    //     unsafe { self.page.read_val_at(PARENT_POINTER.0) }
+    // }
 
-    pub fn set_parent_pointer(&mut self, parent_pointer: u32) {
-        unsafe {
-            self.page.write_val_at(PARENT_POINTER.0, parent_pointer);
-        }
-    }
+    // pub fn set_parent_pointer(&mut self, parent_pointer: u32) {
+    //     unsafe {
+    //         self.page.write_val_at(PARENT_POINTER.0, parent_pointer);
+    //     }
+    // }
 
     pub fn num_cells(&self) -> CellsCount {
-        unsafe { self.page.read_val_at(CELL_NUMS.0) }
+        let page = self
+            .pager
+            .lock()
+            .unwrap()
+            .get_page(self.page_num as usize)
+            .unwrap();
+        unsafe { page.read_val_at(CELL_NUMS.0) }
     }
 
     pub fn set_num_cells(&mut self, num_cells: u32) {
+        let page = self
+            .pager
+            .lock()
+            .unwrap()
+            .get_page(self.page_num as usize)
+            .unwrap();
         unsafe {
-            self.page.write_val_at(CELL_NUMS.0, num_cells);
+            page.write_val_at(CELL_NUMS.0, num_cells);
         }
     }
 
@@ -78,12 +99,18 @@ impl<'a> Node<'a> {
         val
     }
 
-    fn cell(&self, cell_num: u32) -> Cell {
+    fn read_cell_at(&self, cell_num: u32) -> Cell {
         if cell_num > self.num_cells() {
             panic!("Cell index out of bound");
         }
         let offset = self.cell_pointer(cell_num);
-        unsafe { Cell::table_leaf_at(&self.page, offset as usize, 0) }
+        let page = self
+            .pager
+            .lock()
+            .unwrap()
+            .get_page(self.page_num as usize)
+            .unwrap();
+        unsafe { Cell::table_leaf_at(&page, offset as usize, 0) }
     }
 
     pub fn search(&self, search_key: u32) -> Slot {
@@ -95,11 +122,11 @@ impl<'a> Node<'a> {
         let mut lo = 0;
         loop {
             let mid = (lo + hi) / 2;
-            let mid_key = self.cell(mid).key();
+            let mid_key = self.read_cell_at(mid).key();
             if search_key < mid_key {
                 if mid == 0 {
                     return Slot::Hole(0);
-                } else if search_key > self.cell(mid - 1).key() {
+                } else if search_key > self.read_cell_at(mid - 1).key() {
                     return Slot::Hole(mid);
                 }
                 hi = mid;
@@ -113,7 +140,14 @@ impl<'a> Node<'a> {
             }
         }
     }
-    pub fn node_split(node: Node<'a>) -> (u32, NodePointer, NodePointer) {
+
+    pub fn leaf_split_to(node: Node) -> (Node, Node) {
+        let right = node.pager.lock().unwrap().get_free_page().unwrap();
+        let right = Node::new(right as usize, node.pager.clone());
+        todo!()
+    }
+
+    pub fn node_split(node: Node) -> (u32, Node, Node) {
         todo!()
         // let node_type = node.node_type();
         // let left = node;
@@ -154,14 +188,11 @@ impl<'a> Node<'a> {
         key: u32,
         payload: Vec<u8>,
     ) -> InsertResult {
-        let pager_clone = pager.clone();
-        let mut pager = pager.lock().unwrap();
-        let page = pager.get_page_mut(node_ptr as usize).unwrap();
         let node = Node {
-            pager: pager_clone,
-            page,
+            pager: pager.clone(),
+            page_num: node_ptr,
         };
-        if node.should_overflow(payload.len()) {
+        if node.should_split(payload.len()) {
             let (k, l, r) = Node::node_split(node);
             return InsertResult::Splitted(k, l, r);
         }
@@ -176,13 +207,8 @@ impl<'a> Node<'a> {
         left_node_ptr: NodePointer,
     ) -> InsertResult {
         let pager_clone = pager.clone();
-        let mut pager = pager.lock().unwrap();
-        let page = pager.get_page_mut(node_ptr as usize).unwrap();
-        let node = Node {
-            pager: pager_clone,
-            page,
-        };
-        if node.interior_should_overflow() {
+        let node = Node::new(node_ptr as usize, pager.clone());
+        if node.interior_should_split() {
             let (k, l, r) = Node::node_split(node);
             return InsertResult::Splitted(k, l, r);
         }
@@ -195,17 +221,14 @@ impl<'a> Node<'a> {
         key: u32,
         payload: Vec<u8>,
     ) -> InsertResult {
-        let pager_clone = pager.clone();
-        let mut pager = pager.lock().unwrap();
-        let page = pager.get_page_mut(node_ptr as usize).unwrap();
         let node = Node {
-            pager: pager_clone.clone(),
-            page,
+            pager: pager.clone(),
+            page_num: node_ptr,
         };
         let slot = node.search(key);
         let node_type = node.node_type();
         match node_type {
-            NodeType::Leaf => Node::leaf_node_insert(node_ptr, pager_clone, key, payload),
+            NodeType::Leaf => Node::leaf_node_insert(node_ptr, pager, key, payload),
             NodeType::Interior => {
                 let slot = node.search(key);
                 let slot = match slot {
@@ -214,18 +237,17 @@ impl<'a> Node<'a> {
                 };
                 match node.get_children().get(slot as usize) {
                     Some(child) => {
-                        let (split, val) =
-                            match Node::node_insert(*child, pager_clone.clone(), key, payload) {
-                                InsertResult::Normal(node) => (None, node),
-                                InsertResult::Splitted(k, l, r) => (Some((k, l)), r),
-                                InsertResult::KeyExisted(node) => {
-                                    return InsertResult::KeyExisted(node)
-                                }
-                            };
+                        let (split, val) = match Node::node_insert(*child, pager, key, payload) {
+                            InsertResult::Normal(node) => (None, node),
+                            InsertResult::Splitted(k, l, r) => (Some((k, l)), r),
+                            InsertResult::KeyExisted(node) => {
+                                return InsertResult::KeyExisted(node)
+                            }
+                        };
                         // The child which we choose to insert is splitted,
                         // we should insert a splitted node as a child
                         if let Some(v) = split {
-                            Node::interior_node_insert(node_ptr, pager_clone, v.0, v.1);
+                            Node::interior_node_insert(node_ptr, pager, v.0, v.1);
                         }
                         InsertResult::Normal(node_ptr)
                     }
@@ -242,19 +264,19 @@ impl<'a> Node<'a> {
 
     pub fn interior_insert_cell(&mut self, hole: u32, key: u32, node_ptr: NodePointer) {
         todo!();
-        let cell = Cell::new_table_interior(key, node_ptr);
-        let cell_start = self.cell_content_start() as usize - cell.size();
+        // let cell = Cell::new_table_interior(key, node_ptr);
+        // let cell_start = self.cell_content_start() as usize - cell.size();
 
-        let slice = &mut self.page[cell_start as usize..(cell_start + cell.size()) as usize];
-        assert_eq!(slice.len(), cell.size());
-        unsafe {
-            cell.serialize_to(slice);
-        }
+        // let slice = &mut self.page[cell_start as usize..(cell_start + cell.size()) as usize];
+        // assert_eq!(slice.len(), cell.size());
+        // unsafe {
+        //     cell.serialize_to(slice);
+        // }
 
-        self.set_cell_pointer(hole, cell_start as u32);
+        // self.set_cell_pointer(hole, cell_start as u32);
 
-        self.set_cell_content_start(cell_start as u32);
-        self.set_num_cells(self.num_cells() + 1);
+        // self.set_cell_content_start(cell_start as u32);
+        // self.set_num_cells(self.num_cells() + 1);
     }
 
     // pub fn insert(&mut self, hole: u32, key: u32, payload: Vec<u8>) {
@@ -324,7 +346,7 @@ impl<'a> Node<'a> {
                 }
             }
 
-            let slice = &mut page[start_offset..PAGE_SIZE];
+            let slice = &mut page.read_buf_at(start_offset, PAGE_SIZE - start_offset);
             slice.copy_from_slice(&remaining_payloads[start..end]);
         }
         let remain = remaining_payloads.len() % page_available_size;
@@ -336,58 +358,64 @@ impl<'a> Node<'a> {
         };
         let mut pager = self.pager.lock().unwrap();
         let page = pager.get_page_mut(page_addr).unwrap();
-        let slice = &mut page[start_offset..start_offset + remain];
+        let slice = page.read_buf_at(start_offset, remain);
         slice.copy_from_slice(&remaining_payloads[start..end]);
     }
 
-    fn overflow_amount(&self, payload_size: u32) -> Option<u32> {
-        let free_size = self.free_size();
-        if payload_size < free_size as u32 - 12 {
-            None
-        } else {
-            Some(payload_size - free_size as u32 + 200)
-        }
-    }
+    // fn overflow_amount(&self, payload_size: u32) -> Option<u32> {
+    //     let free_size = self.free_size();
+    //     if payload_size < free_size as u32 - 12 {
+    //         None
+    //     } else {
+    //         Some(payload_size - free_size as u32 + 200)
+    //     }
+    // }
 
-    fn min_threshold_for_non_overflow(&self) -> usize {
-        let m = ((PAGE_SIZE - 12) * 32 / 255) - 23;
-        println!("{}", m);
-        m
-    }
+    // fn min_threshold_for_non_overflow(&self) -> usize {
+    //     let m = ((PAGE_SIZE - 12) * 32 / 255) - 23;
+    //     println!("{}", m);
+    //     m
+    // }
 
-    fn cells_content(&self) -> &[u8] {
-        let start = self.cell_content_start();
-        &self.page[start as usize..PAGE_SIZE as usize]
-    }
+    // fn cells_content(&self) -> &[u8] {
+    //     let start = self.cell_content_start();
+    //     &self.page[start as usize..PAGE_SIZE as usize]
+    // }
 
-    fn cell_content_start(&self) -> u32 {
-        unsafe { self.page.read_val_at(CELL_CONTENT_START.0) }
-    }
+    // fn cell_content_start(&self) -> u32 {
+    //     unsafe { self.page.read_val_at(CELL_CONTENT_START.0) }
+    // }
 
-    fn set_cell_content_start(&mut self, val: u32) {
-        unsafe { self.page.write_val_at(CELL_CONTENT_START.0, val) }
-    }
+    // fn set_cell_content_start(&mut self, val: u32) {
+    //     unsafe { self.page.write_val_at(CELL_CONTENT_START.0, val) }
+    // }
 
-    fn set_cell_pointer(&mut self, cell_num: u32, val: u32) {
-        unsafe {
-            self.page
-                .write_val_at(self.cell_pointer_offset(cell_num), val);
-        }
-    }
+    // fn set_cell_pointer(&mut self, cell_num: u32, val: u32) {
+    //     unsafe {
+    //         self.page
+    //             .write_val_at(self.cell_pointer_offset(cell_num), val);
+    //     }
+    // }
 
-    fn free_size(&self) -> usize {
-        self.cell_content_start() as usize - self.cell_pointer_offset(self.num_cells())
-    }
+    // fn free_size(&self) -> usize {
+    //     self.cell_content_start() as usize - self.cell_pointer_offset(self.num_cells())
+    // }
 
     fn cell_pointer(&self, cell_num: u32) -> CellPointer {
-        unsafe { self.page.read_val_at(self.cell_pointer_offset(cell_num)) }
+        let page = self
+            .pager
+            .lock()
+            .unwrap()
+            .get_page(self.page_num as usize)
+            .unwrap();
+        unsafe { page.read_val_at(self.cell_pointer_offset(cell_num)) }
     }
 
-    fn should_overflow(&self, len: usize) -> bool {
+    fn should_split(&self, len: usize) -> bool {
         todo!()
     }
 
-    fn interior_should_overflow(&self) -> bool {
+    fn interior_should_split(&self) -> bool {
         todo!()
     }
 }
@@ -397,8 +425,6 @@ mod node {
     use std::sync::{Arc, Mutex};
 
     use ltp_rust_db_page::pager::Pager;
-
-    use crate::table::btree::node::NodeType;
 
     use super::Node;
 

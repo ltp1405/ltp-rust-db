@@ -56,11 +56,7 @@ impl Pager {
         rs
     }
 
-    pub fn get_free_page_mut(&mut self) -> Option<(usize, &mut Page)> {
-        todo!()
-    }
-
-    pub fn get_page(&mut self, page_num: usize) -> Option<&Page> {
+    pub fn get_page(&mut self, page_num: usize) -> Option<Page> {
         // There are 4 cases that should be handled:
         // - Requested page not allowed (pass limit)
         // - Cache miss (the page needed is not in memory)
@@ -89,10 +85,10 @@ impl Pager {
             page
         };
 
-        Some(page)
+        Some(page.clone())
     }
 
-    pub fn get_page_mut(&mut self, page_num: usize) -> Option<&mut Page> {
+    pub fn get_page_mut(&mut self, page_num: usize) -> Option<Page> {
         if page_num > TABLE_MAX_PAGES {
             return None;
         }
@@ -114,7 +110,7 @@ impl Pager {
             page
         };
 
-        Some(page)
+        Some(page.clone())
     }
 
     pub fn flush(&mut self) {

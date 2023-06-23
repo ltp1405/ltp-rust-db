@@ -216,7 +216,7 @@ mod tests {
         println!("{:?}", OVERFLOW_PAGE_HEAD);
         println!("{}", PAYLOAD_START);
         println!("{:?}", slice);
-        let cell2 = unsafe { Cell::table_leaf_at(page, 0, 0) };
+        let cell2 = unsafe { Cell::table_leaf_at(&page, 0, 0) };
         println!("{:?}", cell2);
         println!("{:?}", cell);
         assert_eq!(cell2.payload_size(), payload.len());

@@ -14,20 +14,19 @@ pub type CellContentOffset = u32;
 /// (<offset>, <size>)
 const NODE_TYPE: (usize, usize) = (0, size_of::<NodeType>());
 /// (<offset>, <size>)
-const IS_ROOT: (usize, usize) = (NODE_TYPE.1, size_of::<bool>());
-/// (<offset>, <size>)
-const PARENT_POINTER: (usize, usize) = (IS_ROOT.0 + IS_ROOT.1, size_of::<NodePointer>());
-/// (<offset>, <size>)
-const CELL_NUMS: (usize, usize) = (
-    PARENT_POINTER.0 + PARENT_POINTER.1,
-    size_of::<CellPointerArray>(),
-);
+const CELL_NUMS: (usize, usize) = (NODE_TYPE.0 + NODE_TYPE.1, size_of::<CellPointerArray>());
+
 const CELL_CONTENT_START: (usize, usize) = (CELL_NUMS.0 + CELL_NUMS.1, size_of::<u32>());
+
+/// (<offset>, <size>)
+const RIGHT_MOST_CHILD_POINTER: (usize, usize) = (
+    CELL_CONTENT_START.0 + CELL_CONTENT_START.1,
+    size_of::<NodePointer>(),
+);
 
 const CELL_POINTERS_ARRAY_OFFSET: usize = CELL_CONTENT_START.0 + CELL_CONTENT_START.1;
 
-/// (<offset>, <size>)
-static COMMON_NODE_HEADER_SIZE: usize = NODE_TYPE.1 + PARENT_POINTER.1 + IS_ROOT.1;
+static TABLE_LEAF_HEADER_SIZE: usize = NODE_TYPE.1 + CELL_NUMS.1;
 
 const CELL_POINTER_SIZE: usize = size_of::<CellPointer>();
 

@@ -51,14 +51,15 @@ impl<'a> Cursor<'a> {
     }
 
     pub fn read(&mut self) -> Option<&Row> {
-        if self.end_of_table {
-            return None;
-        }
-        let page_num = self.row_num / ROWS_PER_PAGE;
-        let page = &mut self.table.pager.get_page(page_num).unwrap();
-        let row_offset = self.row_num % ROWS_PER_PAGE;
-        let byte_offset = row_offset * ROW_SIZE;
-        println!("{}", byte_offset);
-        Some(unsafe { page.get_val_at::<Row>(byte_offset) })
+        todo!()
+        // if self.end_of_table {
+        //     return None;
+        // }
+        // let page_num = self.row_num / ROWS_PER_PAGE;
+        // let page = &mut self.table.pager.get_page(page_num).unwrap();
+        // let row_offset = self.row_num % ROWS_PER_PAGE;
+        // let byte_offset = row_offset * ROW_SIZE;
+        // println!("{}", byte_offset);
+        // Some(unsafe { page.get_val_at::<Row>(byte_offset) })
     }
 }

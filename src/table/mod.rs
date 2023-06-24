@@ -4,6 +4,8 @@ pub mod btree;
 mod cursor;
 mod row;
 mod table;
+
+#[cfg(test)]
 mod tests;
 
 pub use cursor::Cursor;

@@ -11,17 +11,9 @@ pub struct CellData((u32, Vec<u8>));
 
 /// A key-value pair stored in a page
 #[derive(Debug)]
-pub enum Cell {
-    TableLeaf {
-        key: u32,
-        payload_size: u32,
-        not_overflowed_payload: Vec<u8>,
-        overflow_page_head: Option<u32>,
-    },
-    TableInterior {
-        left_child_addr: u32,
-        key: u32,
-    },
+pub enum Cell<'a> {
+    TableLeaf(&'a Page, usize),
+    TableInterior(&'a Page, usize),
     IndexInterior,
     IndexLeaf,
 }
@@ -29,166 +21,150 @@ pub enum Cell {
 type PayloadSize = u32;
 
 /// (<offset>, <size>)
-const LEFT_CHILD_PTR: (usize, usize) = (KEY.1, size_of::<NodePointer>());
-/// (<offset>, <size>)
 const KEY: (usize, usize) = (0, size_of::<u32>());
+/// (<offset>, <size>)
+const CHILD: (usize, usize) = (KEY.0 + KEY.1, size_of::<NodePointer>());
 /// (<offset>, <size>)
 const PAYLOAD_SIZE: (usize, usize) = (KEY.0 + KEY.1, size_of::<PayloadSize>());
 /// (<offset>, <size>)
 const OVERFLOW_PAGE_HEAD: (usize, usize) = (PAYLOAD_SIZE.0 + PAYLOAD_SIZE.1, size_of::<u32>());
+/// (<offset>, <size>)
+const CELL_SIZE: (usize, usize) = (
+    OVERFLOW_PAGE_HEAD.0 + OVERFLOW_PAGE_HEAD.1,
+    size_of::<u32>(),
+);
 
-const PAYLOAD_START: usize = OVERFLOW_PAGE_HEAD.0 + OVERFLOW_PAGE_HEAD.1;
+const PAYLOAD_START: usize = CELL_SIZE.0 + CELL_SIZE.1;
 
-impl Cell {
-    pub unsafe fn table_leaf_at(page: &Page, offset: usize, overflow_amount: usize) -> Self {
-        let page_ptr = page.read_buf_at(0, PAGE_SIZE).as_ptr().add(offset);
-        let key = (page_ptr as *const u32).read_unaligned();
-        let payload_size_ptr = page_ptr.add(PAYLOAD_SIZE.0);
-        let payload_size = (payload_size_ptr as *const PayloadSize).read_unaligned();
-        let overflow_head_ptr = page_ptr.add(OVERFLOW_PAGE_HEAD.0);
-        let overflow_page_head = (overflow_head_ptr as *const u32).read_unaligned();
-        let overflow_page_head = if overflow_page_head == 0 {
-            None
-        } else {
-            Some(overflow_page_head)
-        };
-
-        let payload_ptr = page_ptr.add(PAYLOAD_START);
-        let payload = slice_from_raw_parts(
-            payload_ptr,
-            payload_size as usize - overflow_amount as usize,
-        )
-        .as_ref()
-        .unwrap();
-        Self::TableLeaf {
-            key,
-            payload_size,
-            not_overflowed_payload: payload.to_vec(),
-            overflow_page_head,
-        }
+impl<'a> Cell<'a> {
+    pub fn table_leaf_at(page: &'a Page, offset: usize) -> Self {
+        Self::TableLeaf(page, offset)
     }
 
-    pub fn new_table_leaf(
+    pub fn table_interior_at(page: &'a Page, offset: usize) -> Self {
+        Self::TableInterior(page, offset)
+    }
+
+    pub fn insert_table_interior(
+        page: &'a Page,
+        tail: usize,
+        key: u32,
+        child: NodePointer,
+    ) -> Cell<'a> {
+        let size = KEY.1 + CHILD.1;
+        let offset = tail - size;
+        unsafe {
+            page.write_val_at(offset + KEY.0, key as u32);
+            page.write_val_at(offset + CHILD.0, child as u32);
+        }
+        Cell::table_interior_at(page, offset)
+    }
+
+    pub fn insert_table_leaf(
+        page: &'a Page,
+        tail: usize,
         key: u32,
         payload_size: u32,
-        not_overflowed_payload: Vec<u8>,
         overflow_page_head: Option<u32>,
-    ) -> Self {
-        Self::TableLeaf {
-            key,
-            payload_size,
-            not_overflowed_payload,
-            overflow_page_head,
-        }
-    }
-
-    pub fn new_table_interior(key: u32, left_child_addr: u32) -> Self {
-        Self::TableInterior {
-            left_child_addr,
-            key,
-        }
-    }
-
-    pub fn overflow_page_head(&self) -> Option<u32> {
-        match self {
-            Self::TableLeaf {
-                overflow_page_head, ..
-            } => *overflow_page_head,
-            _ => unreachable!(),
-        }
-    }
-
-    pub unsafe fn serialize_to(&self, slice: &mut [u8]) {
-        match self {
-            Self::TableLeaf {
-                key,
-                payload_size,
-                not_overflowed_payload,
-                overflow_page_head,
-            } => {
-                let ptr = slice.as_ptr();
-                let key_ptr = ptr as *const u8;
-                (key_ptr as *mut u32).write_unaligned(*key);
-
-                let payload_size_ptr = ptr.add(PAYLOAD_SIZE.0);
-                (payload_size_ptr as *mut PayloadSize).write_unaligned(*payload_size);
-
-                let overflow_head_ptr = ptr.add(OVERFLOW_PAGE_HEAD.0);
-                (overflow_head_ptr as *mut u32).write_unaligned(
-                    if let Some(head) = overflow_page_head {
-                        *head
-                    } else {
-                        0x0
-                    },
-                );
-                let payload_ptr = ptr.add(PAYLOAD_START) as *mut u8;
-                let payload_slice =
-                    slice_from_raw_parts_mut(payload_ptr, not_overflowed_payload.len())
-                        .as_mut()
-                        .unwrap();
-                payload_slice.copy_from_slice(not_overflowed_payload.as_slice());
+        not_overflowed_payload: &[u8],
+    ) -> Cell<'a> {
+        let size = KEY.1
+            + PAYLOAD_SIZE.1
+            + OVERFLOW_PAGE_HEAD.1
+            + CELL_SIZE.1
+            + not_overflowed_payload.len();
+        let offset = tail - size;
+        unsafe {
+            page.write_val_at(offset + KEY.0, key as u32);
+            page.write_val_at(offset + PAYLOAD_SIZE.0, payload_size as u32);
+            match overflow_page_head {
+                Some(head) => page.write_val_at(offset + OVERFLOW_PAGE_HEAD.0, head as u32),
+                None => page.write_val_at(offset + OVERFLOW_PAGE_HEAD.0, 0 as u32),
             }
-            _ => unimplemented!(),
+            let size = tail - offset;
+            page.write_val_at(offset + CELL_SIZE.0, size as u32);
+            page.write_buf_at(offset + PAYLOAD_START, not_overflowed_payload);
+        }
+        Cell::table_leaf_at(page, offset)
+    }
+
+    pub fn child(&self) -> NodePointer {
+        match self {
+            Self::TableInterior(p, off) => unsafe { p.read_val_at::<NodePointer>(*off + CHILD.0) },
+            _ => unreachable!("Only interior Node have children"),
+        }
+    }
+
+    pub fn set_child(&self, child: NodePointer) {
+        match self {
+            Self::TableInterior(p, off) => unsafe {
+                p.write_val_at::<NodePointer>(*off + CHILD.0, child)
+            },
+            _ => todo!(),
+        }
+    }
+
+    pub fn cell_size(&self) -> u32 {
+        match self {
+            Self::TableLeaf(p, off) => unsafe { p.read_val_at::<u32>(*off + CELL_SIZE.0) },
+            Self::TableInterior(_, _) => (size_of::<u32>() + size_of::<NodePointer>()) as u32,
+            _ => todo!(),
         }
     }
 
     pub fn key(&self) -> u32 {
         match self {
-            Self::TableLeaf { key, .. } => *key,
-            _ => unimplemented!(),
+            Self::TableLeaf(p, off) => unsafe { p.read_val_at(*off + KEY.0) },
+            Self::TableInterior(p, off) => unsafe { p.read_val_at(*off + KEY.0) },
+            _ => todo!(),
         }
     }
 
-    pub fn payload(&self) -> &[u8] {
+    pub const fn header_size(&self) -> usize {
         match self {
-            Self::TableLeaf {
-                not_overflowed_payload,
-                ..
-            } => not_overflowed_payload,
-            _ => unimplemented!(),
+            Self::TableLeaf(_, _) => KEY.1 + PAYLOAD_SIZE.1 + OVERFLOW_PAGE_HEAD.1 + CELL_SIZE.1,
+            Self::TableInterior(_, _) => KEY.1 + CHILD.1,
+            _ => todo!(),
         }
     }
 
-    pub fn payload_size(&self) -> usize {
+    pub fn payload_size(&self) -> PayloadSize {
         match self {
-            Self::TableLeaf { payload_size, .. } => *payload_size as usize,
-            _ => unimplemented!(),
+            Self::TableLeaf(page, offset) => unsafe { page.read_val_at(*offset + PAYLOAD_SIZE.0) },
+            _ => todo!(),
         }
     }
 
-    pub fn left_child(&self) -> NodePointer {
+    pub fn not_overflowed_payload(&self) -> &[u8] {
         match self {
-            Self::TableInterior {
-                left_child_addr, ..
-            } => *left_child_addr,
-            _ => unimplemented!(),
+            Self::TableLeaf(page, offset) => page.read_buf_at(
+                *offset + PAYLOAD_START,
+                self.cell_size() as usize - self.header_size(),
+            ),
+            _ => todo!(),
         }
     }
 
-    pub fn key_size(&self) -> u32 {
-        KEY.1 as u32
-    }
-
-    pub fn size(&self) -> usize {
+    pub fn overflow_page_head(&self) -> Option<NodePointer> {
         match self {
-            Self::TableLeaf {
-                key,
-                payload_size,
-                not_overflowed_payload,
-                overflow_page_head,
-            } => {
-                self.key_size() as usize
-                    + size_of::<u32>()
-                    + size_of::<u32>()
-                    + not_overflowed_payload.len()
+            Self::TableLeaf(page, offset) => {
+                let head = unsafe { page.read_val_at(*offset + OVERFLOW_PAGE_HEAD.0) };
+                if head > 0 {
+                    Some(head)
+                } else {
+                    None
+                }
             }
-            _ => unimplemented!(),
+            _ => todo!(),
         }
     }
 }
 
+#[cfg(test)]
 mod tests {
-    use crate::table::btree::node::cell::{OVERFLOW_PAGE_HEAD, PAYLOAD_SIZE, PAYLOAD_START};
+    use crate::table::btree::node::cell::{
+        CELL_SIZE, OVERFLOW_PAGE_HEAD, PAYLOAD_SIZE, PAYLOAD_START,
+    };
 
     use super::Cell;
 
@@ -196,32 +172,43 @@ mod tests {
         static ref PAGER: Arc<Mutex<Pager>> = Arc::new(Mutex::new(Pager::init("celltest")));
     }
 
-    use std::{
-        ptr::slice_from_raw_parts_mut,
-        sync::{Arc, Mutex},
-    };
+    use std::sync::{Arc, Mutex};
 
     use lazy_static::lazy_static;
-    use ltp_rust_db_page::pager::Pager;
+    use ltp_rust_db_page::{page::PAGE_SIZE, pager::Pager};
 
     #[test]
-    fn simple_node() {
+    fn simple_cell() {
         let payload: Vec<u8> = vec![1, 2, 3];
         let mut pager = PAGER.lock().unwrap();
-        let cell = Cell::new_table_leaf(12, payload.len() as u32, payload.clone(), None);
-        let page = pager.get_page_mut(0).unwrap();
-        let slice = &mut page.get_buf_mut_at(0, cell.size());
-        unsafe { cell.serialize_to(slice) }
+        let page = pager.get_page(0).unwrap();
+        let cell = Cell::insert_table_leaf(&page, PAGE_SIZE, 12, 3, None, &payload);
+        assert_eq!(cell.key(), 12);
+        assert_eq!(cell.payload_size(), 3);
+        assert_eq!(cell.cell_size() as usize, cell.header_size() + 3);
+        assert_eq!(cell.not_overflowed_payload(), &[1, 2, 3]);
+        let cell = Cell::insert_table_leaf(
+            &page,
+            PAGE_SIZE - cell.cell_size() as usize,
+            12,
+            3,
+            None,
+            &payload,
+        );
+        assert_eq!(cell.not_overflowed_payload(), &[1, 2, 3]);
+        println!("{:?}", cell);
         println!("{:?}", PAYLOAD_SIZE);
         println!("{:?}", OVERFLOW_PAGE_HEAD);
-        println!("{}", PAYLOAD_START);
-        println!("{:?}", slice);
-        let cell2 = unsafe { Cell::table_leaf_at(&page, 0, 0) };
-        println!("{:?}", cell2);
-        println!("{:?}", cell);
-        assert_eq!(cell2.payload_size(), payload.len());
-        assert_eq!(cell2.payload(), payload);
-        assert_eq!(cell2.key(), 12);
+        println!("{:?}", PAYLOAD_START);
+        println!("{:?}", CELL_SIZE);
+        panic!()
+        // let cell2 = Cell::table_leaf_at(&page, 0, cell.static_size() + payload.len());
+        // println!("{:?}", cell2);
+        // unsafe {
+        //     assert_eq!(cell2.payload_size() as usize, payload.len());
+        //     assert_eq!(cell2.not_overflowed_payload(), payload);
+        //     assert_eq!(cell2.key(), 12);
+        // }
     }
 
     // #[test]

@@ -60,8 +60,8 @@ enum InsertDecision {
 
 /// Each node of the btree is contained inside 1 page
 pub struct Node {
-    pager: Arc<Mutex<Pager>>,
-    page_num: NodePointer,
+    pub pager: Arc<Mutex<Pager>>,
+    pub page_num: NodePointer,
 }
 
 #[derive(Debug, PartialEq)]
@@ -109,7 +109,7 @@ impl Node {
         }
     }
 
-    fn set_node_type(&mut self, node_type: NodeType) {
+    pub fn set_node_type(&mut self, node_type: NodeType) {
         let page = self
             .pager
             .lock()
@@ -171,7 +171,7 @@ impl Node {
         unsafe { page.read_val_at(RIGHT_MOST_CHILD_POINTER.0) }
     }
 
-    fn set_right_child(&self, child: NodePointer) {
+    pub fn set_right_child(&self, child: NodePointer) {
         let page = self
             .pager
             .lock()
@@ -351,7 +351,7 @@ impl Node {
         }
     }
 
-    fn interior_insert(mut self, key: u32, child: NodePointer) -> InsertResult {
+    pub fn interior_insert(mut self, key: u32, child: NodePointer) -> InsertResult {
         match self.insert_decision(size_of::<u32>()) {
             InsertDecision::Normal => {
                 let hole = self.search(key);
@@ -416,6 +416,29 @@ impl Node {
         }
     }
 
+    pub fn find_holes(&self) -> Vec<(usize, usize)> {
+        let page = self
+            .pager
+            .lock()
+            .unwrap()
+            .get_page(self.page_num as usize)
+            .unwrap();
+        let mut cells = Vec::new();
+        let mut holes = Vec::new();
+        for i in 0..self.num_cells() {
+            let pos = self.cell_pointer(i);
+            let cell = self.cell_at(&page, i);
+            let size = cell.cell_size();
+            cells.push((pos as usize, size as usize));
+        }
+        cells.sort_by_key(|(start, _size)| *start);
+        let hole_start = cells[0].0 + cells[0].1;
+        for i in 1..cells.len() {
+            holes.push((hole_start, cell[]))
+        }
+        cells
+    }
+
     pub fn node_insert(self, key: u32, payload: &[u8]) -> InsertResult {
         let node_type = self.node_type();
         match node_type {
@@ -453,9 +476,11 @@ impl Node {
                         if hole >= num_cells {
                             self.set_right_child(right.page_num);
                         } else {
+                            let cell_offset = self.cell_pointer(hole);
                             let mut pager = self.pager.lock().unwrap();
                             let page = pager.get_page(self.page_num as usize).unwrap();
-                            self.cell_at(&page, hole).set_child(right.page_num);
+                            let cell = Cell::table_interior_at(&page, cell_offset as usize);
+                            cell.set_child(right.page_num);
                         }
                         self.interior_insert(returned_key, left.page_num)
                     }
@@ -527,12 +552,28 @@ impl Node {
     }
 
     fn insert_decision(&self, payload_size: usize) -> InsertDecision {
-        if payload_size > 100 {
-            InsertDecision::Overflow(30)
-        } else if self.num_cells() > 3 {
-            InsertDecision::Split
-        } else {
-            InsertDecision::Normal
+        let free_size = self.free_size();
+        let node_type = self.node_type();
+        if self.num_cells() > 3 {
+            return InsertDecision::Split;
+        }
+        match node_type {
+            NodeType::Interior => {
+                if free_size < payload_size {
+                    return InsertDecision::Split;
+                } else {
+                    return InsertDecision::Normal;
+                }
+            }
+            NodeType::Leaf => {
+                if free_size < 30 {
+                    return InsertDecision::Split;
+                } else if free_size < payload_size {
+                    return InsertDecision::Overflow(free_size);
+                } else {
+                    return InsertDecision::Normal;
+                }
+            }
         }
     }
 }
@@ -546,6 +587,33 @@ mod node {
     use crate::table::btree::node::{node::InsertResult, NodePointer, NodeType};
 
     use super::Node;
+
+    #[test]
+    fn find_holes() {
+        let pager = Arc::new(Mutex::new(Pager::init("insert_ptr")));
+        let mut node = Node::new(0, pager.clone());
+        node.set_node_type(NodeType::Leaf);
+        let data = vec![
+            (12, [1, 2, 3]),
+            (222, [1, 2, 3]),
+            (11, [1, 2, 3]),
+            (88, [1, 2, 3]),
+            (8, [1, 2, 3]),
+        ];
+        for datum in &data[0..4] {
+            node = match node.node_insert(datum.0, &datum.1) {
+                InsertResult::Normal(node) => node,
+                _ => unreachable!(),
+            };
+        }
+        match node.node_insert(data[4].0, &data[4].1) {
+            InsertResult::Splitted(key, left, right) => {
+                println!("{:#?}", left.find_holes());
+            }
+            _ => unreachable!(),
+        };
+        panic!()
+    }
 
     #[test]
     fn split_logic() {
@@ -562,6 +630,8 @@ mod node {
             (111, [1, 2, 3]),
             (333, [1, 2, 3]),
             (7777, [1, 2, 3]),
+            (23, [1, 2, 3]),
+            (56, [1, 2, 3]),
             (12521, [1, 2, 3]),
         ];
         for datum in &data[0..4] {

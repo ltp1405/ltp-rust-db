@@ -1,6 +1,7 @@
-mod btree;
-mod cell;
-mod node;
+pub mod cell;
+pub mod node;
+
+pub use node::Node;
 
 use std::mem::size_of;
 

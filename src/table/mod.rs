@@ -4,6 +4,7 @@ pub mod btree;
 mod cursor;
 mod row;
 mod table;
+mod file;
 
 #[cfg(test)]
 mod tests;

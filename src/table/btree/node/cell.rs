@@ -1,4 +1,5 @@
 use std::{
+    fmt::{Debug, Display},
     mem::size_of,
     ptr::{slice_from_raw_parts, slice_from_raw_parts_mut},
 };
@@ -9,8 +10,28 @@ use super::{NodePointer, NodeType};
 
 pub struct CellData((u32, Vec<u8>));
 
+impl<'a> Debug for Cell<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TableLeaf(_page, _offset) => f
+                .debug_struct("Cell::TableLeaf")
+                .field("Key", &self.key())
+                .field("Size", &self.cell_size())
+                .field("Payload Size", &self.payload_size())
+                .field("Kept Payload Size", &self.kept_payload().len())
+                .field("Overflow Head", &self.overflow_page_head())
+                .finish(),
+            Self::TableInterior(_page, _offset) => f
+                .debug_struct("Cell::TableInterior")
+                .field("Key", &self.key())
+                .field("child", &self.child())
+                .finish(),
+            _ => todo!(),
+        }
+    }
+}
+
 /// A key-value pair stored in a page
-#[derive(Debug)]
 pub enum Cell<'a> {
     TableLeaf(&'a Page, usize),
     TableInterior(&'a Page, usize),
@@ -107,7 +128,7 @@ impl<'a> Cell<'a> {
     pub fn cell_size(&self) -> u32 {
         match self {
             Self::TableLeaf(p, off) => unsafe { p.read_val_at::<u32>(*off + CELL_SIZE.0) },
-            Self::TableInterior(_, _) => (size_of::<u32>() + size_of::<NodePointer>()) as u32,
+            Self::TableInterior(_, _) => self.header_size() as u32,
             _ => todo!(),
         }
     }
@@ -135,7 +156,7 @@ impl<'a> Cell<'a> {
         }
     }
 
-    pub fn not_overflowed_payload(&self) -> &[u8] {
+    pub fn kept_payload(&self) -> &[u8] {
         match self {
             Self::TableLeaf(page, offset) => page.read_buf_at(
                 *offset + PAYLOAD_START,
@@ -162,10 +183,6 @@ impl<'a> Cell<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::table::btree::node::cell::{
-        CELL_SIZE, OVERFLOW_PAGE_HEAD, PAYLOAD_SIZE, PAYLOAD_START,
-    };
-
     use super::Cell;
 
     lazy_static! {
@@ -178,7 +195,7 @@ mod tests {
     use ltp_rust_db_page::{page::PAGE_SIZE, pager::Pager};
 
     #[test]
-    fn simple_cell() {
+    fn simple_leaf_cell() {
         let payload: Vec<u8> = vec![1, 2, 3];
         let mut pager = PAGER.lock().unwrap();
         let page = pager.get_page(0).unwrap();
@@ -186,54 +203,23 @@ mod tests {
         assert_eq!(cell.key(), 12);
         assert_eq!(cell.payload_size(), 3);
         assert_eq!(cell.cell_size() as usize, cell.header_size() + 3);
-        assert_eq!(cell.not_overflowed_payload(), &[1, 2, 3]);
-        let cell = Cell::insert_table_leaf(
-            &page,
-            PAGE_SIZE - cell.cell_size() as usize,
-            12,
-            3,
-            None,
-            &payload,
-        );
-        assert_eq!(cell.not_overflowed_payload(), &[1, 2, 3]);
-        println!("{:?}", cell);
-        println!("{:?}", PAYLOAD_SIZE);
-        println!("{:?}", OVERFLOW_PAGE_HEAD);
-        println!("{:?}", PAYLOAD_START);
-        println!("{:?}", CELL_SIZE);
-        panic!()
-        // let cell2 = Cell::table_leaf_at(&page, 0, cell.static_size() + payload.len());
-        // println!("{:?}", cell2);
-        // unsafe {
-        //     assert_eq!(cell2.payload_size() as usize, payload.len());
-        //     assert_eq!(cell2.not_overflowed_payload(), payload);
-        //     assert_eq!(cell2.key(), 12);
-        // }
+        assert_eq!(cell.kept_payload(), &[1, 2, 3]);
+        let cell2 = Cell::table_leaf_at(&page, PAGE_SIZE - cell.cell_size() as usize);
+        println!("{:#?}", cell2);
+        assert_eq!(cell2.payload_size() as usize, payload.len());
+        assert_eq!(cell2.kept_payload(), payload);
+        assert_eq!(cell2.key(), 12);
     }
 
-    // #[test]
-    // fn node_with_overflow() {
-    //     let payload: Vec<u8> = vec![1, 2, 3].repeat(1000);
-    //     let mut pager = PAGER.lock().unwrap();
-    //     let cell = Cell::new_table_leaf(12, payload.len() as u32, payload.clone(), Some(1));
-    //     let page = pager.get_page_mut(0).unwrap();
-
-    //     let slice = &mut page[0 as usize..0 + cell.size() as usize];
-    //     unsafe { cell.serialize_to(slice) }
-
-    //     let mut pager = PAGER.lock().unwrap();
-    //     let overflow_page = pager.get_page_mut(1).unwrap();
-
-    //     let cell2 = unsafe { Cell::table_leaf_at(page, 0, 0) };
-
-    //     unsafe {
-    //         overflow_page.write_val_at(0, 1000);
-    //     }
-
-    //     println!("{:?}", cell2);
-    //     println!("{:?}", cell);
-    //     assert_eq!(cell2.payload_size(), payload.len());
-    //     assert_eq!(cell2.payload(), payload);
-    //     assert_eq!(cell2.key(), 12);
-    // }
+    #[test]
+    fn simple_interior_cell() {
+        let mut pager = PAGER.lock().unwrap();
+        let page = pager.get_page(0).unwrap();
+        let cell = Cell::insert_table_interior(&page, PAGE_SIZE, 12, 3);
+        assert_eq!(cell.key(), 12);
+        let cell2 = Cell::table_interior_at(&page, PAGE_SIZE - cell.cell_size() as usize);
+        println!("{:#?}", cell2);
+        assert_eq!(cell2.key(), 12);
+        assert_eq!(cell2.child(), 3);
+    }
 }

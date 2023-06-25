@@ -1,7 +1,6 @@
 use std::{
+    fmt::Debug,
     mem::size_of,
-    ptr::slice_from_raw_parts_mut,
-    rc::Rc,
     sync::{Arc, Mutex},
 };
 
@@ -10,7 +9,7 @@ use ltp_rust_db_page::{
     pager::Pager,
 };
 
-impl std::fmt::Display for Node {
+impl Debug for Node {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let page = self
             .pager
@@ -19,16 +18,30 @@ impl std::fmt::Display for Node {
             .get_page(self.page_num as usize)
             .unwrap();
         match self.node_type() {
-            NodeType::Interior => {
-                let mut buf = String::new();
-                buf.push_str(&format!("INTERIOR({} cells, {} child[ren]]):\n", self.num_cells(), self.num_cells() + 1));
+            NodeType::Leaf => {
+                let mut cells = Vec::new();
                 for i in 0..self.num_cells() {
-                    let cell = self.cell_at(&page, self.cell_pointer(i));
-                    buf.push_str(&format!("{:?}", cell));
+                    let cell = Cell::table_leaf_at(&page, self.cell_pointer(i) as usize);
+                    cells.push(cell);
                 }
-                f.write_str(&buf)
+                f.debug_struct("LeafNode").field("cells", &cells).finish()
             }
-            NodeType::Leaf => todo!(),
+            NodeType::Interior => {
+                let mut children = Vec::new();
+                for i in 0..self.num_cells() {
+                    let cell = Cell::table_interior_at(&page, self.cell_pointer(i) as usize);
+                    let node = Node::new(cell.child() as usize, self.pager.clone());
+                    let key = cell.key();
+                    children.push((key, node));
+                }
+                let right_child = Node::new(self.right_child() as usize, self.pager.clone());
+                f.debug_struct("InteriorNode")
+                    .field("address", &self.page_num)
+                    .field("children_num", &children.len())
+                    .field("children", &children)
+                    .field("right_most_child", &right_child)
+                    .finish()
+            }
         }
     }
 }
@@ -46,7 +59,6 @@ enum InsertDecision {
 }
 
 /// Each node of the btree is contained inside 1 page
-#[derive(Debug)]
 pub struct Node {
     pager: Arc<Mutex<Pager>>,
     page_num: NodePointer,
@@ -61,7 +73,7 @@ pub enum Slot {
 }
 
 #[derive(Debug)]
-enum InsertResult {
+pub enum InsertResult {
     KeyExisted(Node),
     Normal(Node),
     Splitted(NodePointer, Node, Node),
@@ -86,10 +98,18 @@ impl Node {
             .unwrap()
             .get_page(self.page_num as usize)
             .unwrap();
-        unsafe { page.read_val_at(NODE_TYPE.0) }
+        let node_type = unsafe { page.read_val_at::<NodeType>(NODE_TYPE.0) };
+        if node_type as u8 == 0x2 {
+            NodeType::Interior
+        } else if node_type as u8 == 0x5 {
+            NodeType::Leaf
+        } else {
+            println!("{:?}", node_type as u8);
+            panic!("Invalid node type")
+        }
     }
 
-    pub fn set_node_type(&mut self, node_type: NodeType) {
+    fn set_node_type(&mut self, node_type: NodeType) {
         let page = self
             .pager
             .lock()
@@ -100,16 +120,6 @@ impl Node {
             page.write_val_at::<NodeType>(NODE_TYPE.0, node_type);
         }
     }
-
-    // pub fn parent_pointer(&self) -> u32 {
-    //     unsafe { self.page.read_val_at(PARENT_POINTER.0) }
-    // }
-
-    // pub fn set_parent_pointer(&mut self, parent_pointer: u32) {
-    //     unsafe {
-    //         self.page.write_val_at(PARENT_POINTER.0, parent_pointer);
-    //     }
-    // }
 
     pub fn num_cells(&self) -> CellsCount {
         let page = self
@@ -139,20 +149,6 @@ impl Node {
     }
 
     fn cell_bound(&self, cell_num: u32) -> (usize, usize) {
-        // if cell_num > self.num_cells() {
-        //     panic!("Cell index out of bound");
-        // }
-        // let target = self.cell_pointer(cell_num) as usize;
-        // let mut min = PAGE_SIZE;
-        // for cell_num in 0..self.num_cells() {
-        //     let off = self.cell_pointer(cell_num) as usize;
-        //     if off <= target {
-        //         continue;
-        //     }
-        //     if off < min {
-        //         min = off
-        //     }
-        // }
         let page = self
             .pager
             .lock()
@@ -165,6 +161,7 @@ impl Node {
     }
 
     fn right_child(&self) -> NodePointer {
+        assert_eq!(self.node_type(), NodeType::Interior);
         let page = self
             .pager
             .lock()
@@ -274,6 +271,7 @@ impl Node {
                 InsertResult::Normal(self)
             }
             InsertDecision::Overflow(kept_size) => {
+                todo!();
                 let hole = self.search(key);
                 let hole = match hole {
                     Slot::Hole(hole) => hole,
@@ -309,12 +307,13 @@ impl Node {
                     .unwrap();
                 let new_page = self.pager.lock().unwrap().get_free_page().unwrap();
                 let mut new_node = Node::new(new_page, self.pager.clone());
+                new_node.set_node_type(NodeType::Leaf);
                 let mid = self.num_cells() / 2;
                 for i in mid..self.num_cells() {
                     let cell = Cell::table_leaf_at(&page, self.cell_pointer(i) as usize);
                     new_node = if let InsertResult::Normal(node) = new_node.leaf_insert(
                         cell.key(),
-                        cell.not_overflowed_payload(),
+                        cell.kept_payload(),
                         cell.overflow_page_head(),
                     ) {
                         node
@@ -345,7 +344,8 @@ impl Node {
 
     fn cell_at<'a>(&'a self, page: &'a Page, cell_num: u32) -> Cell<'a> {
         let offset = self.cell_pointer(cell_num);
-        match self.node_type() {
+        let node_type = self.node_type();
+        match node_type {
             NodeType::Leaf => Cell::table_leaf_at(page, offset as usize),
             NodeType::Interior => Cell::table_interior_at(page, offset as usize),
         }
@@ -366,7 +366,6 @@ impl Node {
                     .unwrap()
                     .get_page(self.page_num as usize)
                     .unwrap();
-                println!("{:?}", cell_start);
                 let cell = Cell::insert_table_interior(&page, cell_start as usize, key, child);
                 let cell_start = cell_start - (cell.header_size() as u32);
                 self.set_cell_content_start(cell_start);
@@ -385,22 +384,19 @@ impl Node {
                     .unwrap();
                 let new_page = self.pager.lock().unwrap().get_free_page().unwrap();
                 let mut new_node = Node::new(new_page, self.pager.clone());
+                new_node.set_node_type(NodeType::Interior);
                 let mid = self.num_cells() / 2;
                 for i in mid..self.num_cells() {
-                    let cell = self.cell_at(&page, self.cell_pointer(i));
-                    new_node = if let InsertResult::Normal(node) = new_node.leaf_insert(
-                        cell.key(),
-                        cell.not_overflowed_payload(),
-                        cell.overflow_page_head(),
-                    ) {
-                        node
-                    } else {
-                        unreachable!()
+                    println!("{}", self.cell_pointer(i));
+                    let cell = self.cell_at(&page, i);
+                    println!("{:?}", cell);
+                    new_node = match new_node.interior_insert(cell.key(), cell.child()) {
+                        InsertResult::Normal(node) => node,
+                        _ => unreachable!(),
                     };
                 }
                 // TODO: Handle hole after split
-                let cell_bound = self.cell_bound(mid);
-                let mid_key = self.cell_at(&page, cell_bound.0 as u32).key();
+                let mid_key = self.cell_at(&page, mid).key();
                 self.set_num_cells(mid);
 
                 if key >= mid_key {
@@ -414,12 +410,13 @@ impl Node {
                         _ => unreachable!("Maybe overflow calculation go wrong"),
                     }
                 };
+                self.set_node_type(NodeType::Interior);
                 InsertResult::Splitted(mid_key, self, new_node)
             }
         }
     }
 
-    fn node_insert(self, key: u32, payload: &[u8]) -> InsertResult {
+    pub fn node_insert(self, key: u32, payload: &[u8]) -> InsertResult {
         let node_type = self.node_type();
         match node_type {
             NodeType::Leaf => return self.leaf_insert(key, payload, None),
@@ -430,24 +427,36 @@ impl Node {
                     Slot::Hole(hole) => hole,
                     Slot::Cell(cell) => cell,
                 };
+                let right_child = self.right_child();
+                let offset = self.cell_pointer(hole);
+                let child = {
+                    if hole >= self.num_cells() {
+                        right_child
+                    } else {
+                        {
+                            let pager = self.pager.clone();
+                            let mut pager = pager.lock().unwrap();
+                            let page = pager.get_page(self.page_num as usize).unwrap();
+                            let cell = Cell::table_interior_at(&page, offset as usize);
+                            cell.child()
+                        }
+                    }
+                };
                 let result = {
-                    let mut pager = self.pager.lock().unwrap();
-                    let page = pager.get_page(self.page_num as usize).unwrap();
-                    let cell = self.cell_at(&page, hole);
-                    let to_insert_node = Node::new(cell.child() as usize, self.pager.clone());
+                    let to_insert_node = Node::new(child as usize, self.pager.clone());
                     to_insert_node.node_insert(key, payload)
                 };
                 match result {
-                    InsertResult::Normal(node) => InsertResult::Normal(node),
+                    InsertResult::Normal(_node) => InsertResult::Normal(self),
                     InsertResult::Splitted(returned_key, left, right) => {
-                        let mut pager = self.pager.lock().unwrap();
-                        let page = pager.get_page(self.page_num as usize).unwrap();
-                        if hole >= self.num_cells() {
+                        let num_cells = self.num_cells();
+                        if hole >= num_cells {
                             self.set_right_child(right.page_num);
                         } else {
+                            let mut pager = self.pager.lock().unwrap();
+                            let page = pager.get_page(self.page_num as usize).unwrap();
                             self.cell_at(&page, hole).set_child(right.page_num);
                         }
-                        drop(pager);
                         self.interior_insert(returned_key, left.page_num)
                     }
                     InsertResult::KeyExisted(key) => InsertResult::KeyExisted(key),
@@ -534,34 +543,79 @@ mod node {
 
     use ltp_rust_db_page::pager::Pager;
 
-    use crate::table::btree::node::{node::InsertResult, NodeType};
+    use crate::table::btree::node::{node::InsertResult, NodePointer, NodeType};
 
     use super::Node;
 
     #[test]
-    fn interior_insert() {
+    fn split_logic() {
         let pager = Arc::new(Mutex::new(Pager::init("insert_ptr")));
-        let node = Node::new(0, pager.clone());
-        let node = match node.leaf_insert(533, &[2; 50], None) {
-            InsertResult::Normal(node) => node,
+        let mut node = Node::new(0, pager.clone());
+        node.set_node_type(NodeType::Leaf);
+        let data = vec![
+            (12, [1, 2, 3]),
+            (222, [1, 2, 3]),
+            (11, [1, 2, 3]),
+            (88, [1, 2, 3]),
+            (8, [1, 2, 3]),
+            (1, [1, 2, 3]),
+            (111, [1, 2, 3]),
+            (333, [1, 2, 3]),
+            (7777, [1, 2, 3]),
+            (12521, [1, 2, 3]),
+        ];
+        for datum in &data[0..4] {
+            node = match node.node_insert(datum.0, &datum.1) {
+                InsertResult::Normal(node) => node,
+                _ => unreachable!(),
+            };
+        }
+        node = match node.node_insert(data[4].0, &data[4].1) {
+            InsertResult::Splitted(key, left, right) => {
+                let new_page = pager.lock().unwrap().get_free_page().unwrap();
+                let mut node = Node::new(new_page as usize, pager.clone());
+                node.set_node_type(NodeType::Interior);
+                node.set_right_child(right.page_num);
+                let node = match node.interior_insert(key, left.page_num) {
+                    InsertResult::Normal(node) => node,
+                    _ => unreachable!(),
+                };
+                node
+            }
             _ => unreachable!(),
         };
-        let node = match node.leaf_insert(22, &[1; 12], None) {
-            InsertResult::Normal(node) => node,
-            _ => unreachable!(),
-        };
-        let node = match node.leaf_insert(12, &[9; 3], None) {
-            InsertResult::Normal(node) => node,
-            _ => unreachable!(),
-        };
-        let node = match node.leaf_insert(124, &[1, 2, 5, 6], None) {
-            InsertResult::Normal(node) => node,
-            _ => unreachable!(),
-        };
+        for datum in &data[5..] {
+            node = match node.node_insert(datum.0, &datum.1) {
+                InsertResult::Normal(node) => {
+                    println!("{:#?}", node);
+                    node
+                }
+                _ => unreachable!(),
+            };
+        }
+        panic!();
     }
 
     #[test]
-    fn insert_ptr() {
+    fn interior_insert() {
+        let pager = Arc::new(Mutex::new(Pager::init("insert_ptr")));
+        let new_page = pager.lock().unwrap().get_free_page().unwrap();
+        let node = Node::new(new_page as usize, pager.clone());
+        node.set_right_child(4);
+        assert_eq!(node.right_child(), 4);
+        let node = match node.interior_insert(12, 42) {
+            InsertResult::Normal(node) => node,
+            _ => unreachable!(),
+        };
+        let node = match node.interior_insert(42, 143) {
+            InsertResult::Normal(node) => node,
+            _ => unreachable!(),
+        };
+        assert_eq!(node.right_child(), 4);
+    }
+
+    #[test]
+    fn insert_cell_pointer() {
         let pager = Arc::new(Mutex::new(Pager::init("insert_ptr")));
         let mut node = Node::new(0, pager.clone());
         node.insert_cell_pointer(0, 12);
@@ -583,33 +637,64 @@ mod node {
         let page = pager.lock().unwrap().get_page(0).unwrap();
     }
 
+    fn create_leaf_node_samples(pager: Arc<Mutex<Pager>>, num: usize) -> Vec<NodePointer> {
+        let mut children = Vec::new();
+        for i in 0..num {
+            let page = pager.lock().unwrap().get_free_page().unwrap();
+            let mut node = Node::new(page, pager.clone());
+            node.set_node_type(NodeType::Leaf);
+            let node = node.leaf_insert(i as u32, &[1, 2, 3], None);
+            match node {
+                InsertResult::Normal(node) => {
+                    println!("{:#?}", node);
+                    children.push(node.page_num);
+                }
+                _ => unreachable!(),
+            }
+        }
+        children
+    }
+
     #[test]
-    fn insert_single_leaf_interior() {
-        let pager = Arc::new(Mutex::new(Pager::init("insert_ptr")));
-        let page1 = pager.lock().unwrap().get_free_page().unwrap();
-        let page2 = pager.lock().unwrap().get_free_page().unwrap();
-        let mut node = Node::new(0, pager.clone());
+    fn single_interior_insert() {
+        let pager = Arc::new(Mutex::new(Pager::init("single_interior_insert")));
+        let children = create_leaf_node_samples(pager.clone(), 5);
+        let new_page = pager.lock().unwrap().get_free_page().unwrap();
+        let mut node = Node::new(new_page as usize, pager.clone());
         node.set_node_type(NodeType::Interior);
-        let node = if let InsertResult::Normal(node) = node.interior_insert(22, page1 as u32) {
+        let node = if let InsertResult::Normal(node) = node.interior_insert(22, children[0]) {
             node
         } else {
             unreachable!()
         };
-        let node = if let InsertResult::Normal(node) = node.interior_insert(12, page2 as u32) {
+        let node = if let InsertResult::Normal(node) = node.interior_insert(12, children[1]) {
             node
         } else {
             unreachable!()
         };
-        let node = if let InsertResult::Normal(node) = node.interior_insert(12, page2 as u32) {
+        let node = if let InsertResult::Normal(node) = node.interior_insert(300, children[2]) {
             node
         } else {
             unreachable!()
+        };
+        let node = if let InsertResult::Normal(node) = node.interior_insert(1242, children[2]) {
+            node
+        } else {
+            unreachable!()
+        };
+        println!("{:#?}", node);
+        let node = match node.interior_insert(200, children[4] as u32) {
+            InsertResult::Splitted(key, left, right) => {
+                println!("{:#?}", key);
+                println!("{:#?}", left);
+                println!("{:#?}", right);
+                left
+            }
+            _ => unreachable!("Bad result"),
         };
         let page = pager.lock().unwrap().get_page(0).unwrap();
         let cell = node.cell_at(&page, 0);
         assert_eq!(cell.key(), 22);
-        assert_eq!(cell.key(), 22);
-        assert_eq!(cell.child(), 12);
         assert_eq!(cell.child(), 12);
         for i in 0..node.num_cells() - 1 {
             let lo = node.cell_at(&page, i).key();
@@ -619,7 +704,7 @@ mod node {
     }
 
     #[test]
-    fn single_leaf_insert() {
+    fn basic_leaf_insert() {
         let pager = Arc::new(Mutex::new(Pager::init("insert_ptr")));
         let node = Node::new(0, pager.clone());
         let node =
@@ -629,8 +714,8 @@ mod node {
                 unreachable!()
             };
         let page = pager.lock().unwrap().get_page(0).unwrap();
-        let cell = node.cell_at(&page, 0);
-        assert_eq!(cell.not_overflowed_payload(), &[1, 2, 3, 4, 5, 6],);
+        let cell = node.cell_at(&page, node.cell_pointer(0));
+        assert_eq!(cell.kept_payload(), &[1, 2, 3, 4, 5, 6],);
     }
 
     #[test]
@@ -655,9 +740,9 @@ mod node {
         };
         let page = pager.lock().unwrap().get_page(0).unwrap();
         let cell = node.cell_at(&page, 0);
-        assert_eq!(cell.not_overflowed_payload(), &[1, 2, 3],);
+        assert_eq!(cell.kept_payload(), &[1, 2, 3],);
         let cell = node.cell_at(&page, 1);
-        assert_eq!(cell.not_overflowed_payload(), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(cell.kept_payload(), &[1, 2, 3, 4, 5, 6]);
         for i in 0..node.num_cells() - 1 {
             let lo = node.cell_at(&page, i).key();
             let hi = node.cell_at(&page, i + 1).key();
@@ -693,16 +778,15 @@ mod node {
                 node.set_right_child(r.page_num);
 
                 let page = pager.lock().unwrap().get_page(node.page_num as usize);
-                println!("{:?}", page);
                 let node = match node.interior_insert(k, l.page_num) {
                     InsertResult::Normal(node) => node,
                     _ => unreachable!(),
                 };
+                println!("{:?}", node);
+                panic!();
                 node
             }
             _ => unreachable!(),
         };
-        println!("{}", node);
-        panic!()
     }
 }

@@ -2,19 +2,25 @@ use std::{
     fs::File,
     io::{Read, Seek, SeekFrom, Write},
     mem::size_of,
+    sync::{Arc, Mutex},
 };
 
-#[derive(Debug)]
-enum DiskError {
+use log::info;
+
+#[derive(Debug, PartialEq)]
+pub enum DiskError {
     IncorrectBlockSize,
     OverCapacity,
 }
 
-struct Disk<const BlockSize: usize, const Capacity: usize> {
-    file: File,
+const HEADER_SIZE: usize = size_of::<u32>() * 2;
+
+#[derive(Debug, Clone)]
+pub struct Disk<const BLOCKSIZE: usize, const CAPACITY: usize> {
+    file: Arc<Mutex<File>>,
 }
 
-fn make_name(name: &str) -> String {
+pub fn make_name(name: &str) -> String {
     let name = name.replace("-", "_");
     let mut disk_name = String::from("DISK_IMAGE_");
     disk_name.push_str(&name);
@@ -47,7 +53,7 @@ fn read_header(file: &mut File) -> Result<(u32, u32), std::io::Error> {
 }
 
 impl<const BLOCKSIZE: usize, const CAPACITY: usize> Disk<BLOCKSIZE, CAPACITY> {
-    pub fn init(name: &str) -> Result<Self, std::io::Error> {
+    pub fn create(name: &str) -> Result<Self, std::io::Error> {
         assert_eq!(
             CAPACITY % BLOCKSIZE,
             0,
@@ -61,10 +67,12 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> Disk<BLOCKSIZE, CAPACITY> {
             .open(make_name(name))?;
         file.set_len(CAPACITY as u64)?;
         write_header(&mut file, BLOCKSIZE as u32, CAPACITY as u32)?;
-        Ok(Self { file })
+        Ok(Self {
+            file: Arc::new(Mutex::new(file)),
+        })
     }
 
-    pub fn open(name: &str) -> Result<Self, std::io::Error> {
+    pub fn connect(name: &str) -> Result<Self, std::io::Error> {
         assert_eq!(
             CAPACITY % BLOCKSIZE,
             0,
@@ -77,59 +85,120 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> Disk<BLOCKSIZE, CAPACITY> {
         let (block_size, capacity) = read_header(&mut file)?;
         assert_eq!(BLOCKSIZE, block_size as usize, "Incorrect disk block size");
         assert_eq!(CAPACITY, capacity as usize, "Incorrect disk capacity");
-        Ok(Self { file })
+        Ok(Self {
+            file: Arc::new(Mutex::new(file)),
+        })
     }
 
-    fn read_block(&mut self, block_number: usize) -> Result<Box<[u8; BLOCKSIZE]>, DiskError> {
-        if block_number > CAPACITY / BLOCKSIZE {
+    pub fn read_block(&self, block_number: usize) -> Result<Box<[u8; BLOCKSIZE]>, DiskError> {
+        let mut file = self.file.lock().unwrap();
+        info!("Start reading block[{}]", block_number);
+        if block_number >= CAPACITY / BLOCKSIZE {
             return Err(DiskError::OverCapacity);
         }
-        self.file
-            .seek(SeekFrom::Start(8 + (block_number * BLOCKSIZE) as u64))
-            .unwrap();
+        file.seek(SeekFrom::Start(
+            HEADER_SIZE as u64 + (block_number * BLOCKSIZE) as u64,
+        ))
+        .unwrap();
         let mut buf = Box::new([0; BLOCKSIZE]);
-        self.file.read(&mut *buf).unwrap();
+        file.read(&mut *buf).unwrap();
+        info!("Done reading block[{}]", block_number);
         Ok(buf)
     }
 
-    fn write_block(&mut self, block_number: usize, block: &[u8]) -> Result<(), DiskError> {
+    pub fn write_block(&self, block_number: usize, block: &[u8]) -> Result<(), DiskError> {
+        let mut file = self.file.lock().unwrap();
+        info!("Start writing block[{}]", block_number);
         if block.len() != BLOCKSIZE {
             return Err(DiskError::IncorrectBlockSize);
-        } else if block_number > CAPACITY / BLOCKSIZE {
+        } else if block_number >= CAPACITY / BLOCKSIZE {
             return Err(DiskError::OverCapacity);
         }
-        self.file
-            .seek(SeekFrom::Start(8 + (block_number * BLOCKSIZE) as u64))
-            .unwrap();
-        self.file.write(block).unwrap();
+        file.seek(SeekFrom::Start(
+            HEADER_SIZE as u64 + (block_number * BLOCKSIZE) as u64,
+        ))
+        .unwrap();
+        file.write(block).unwrap();
+        info!("Done writing block[{}]", block_number);
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod test {
-    use std::io::{Seek, SeekFrom};
-
-    use crate::Disk;
+    use super::*;
+    use std::fs::remove_file;
 
     #[test]
-    fn init() {
-        let mut disk: Disk<512, 65536> = Disk::init("disk1").unwrap();
-        let len = disk.file.seek(SeekFrom::End(0)).unwrap();
-        assert_eq!(len, 65536);
-        drop(disk);
-
-        let _disk2: Disk<512, 65536> = Disk::open("disk1").unwrap();
+    fn test_create() {
+        let disk = Disk::<512, 1024>::create("test_create").unwrap();
+        remove_file(make_name("test_create")).unwrap();
     }
 
     #[test]
-    fn read_write() {
-        let mut disk: Disk<512, 65536> = Disk::init("disk2").unwrap();
+    fn test_connect() {
+        let disk = Disk::<512, 1024>::create("test_connect").unwrap();
+        let disk = Disk::<512, 1024>::connect("test_connect").unwrap();
+        remove_file(make_name("test_connect")).unwrap();
+    }
 
-        let data: [u8; 512] = [0xff; 512];
-        disk.write_block(0, &data).unwrap();
+    #[test]
+    fn test_read_write() {
+        let disk = Disk::<512, 1024>::create("test_read_write").unwrap();
+        let mut block = Box::new([0; 512]);
+        block[0] = 1;
+        disk.write_block(0, &*block).unwrap();
+        let block = disk.read_block(0).unwrap();
+        assert_eq!(block[0], 1);
+        remove_file(make_name("test_read_write")).unwrap();
+    }
 
-        let mut disk2: Disk<512, 65536> = Disk::open("disk2").unwrap();
-        assert_eq!(*disk2.read_block(0).unwrap(), data);
+    #[test]
+    fn test_read_write_over_capacity() {
+        let disk = Disk::<512, 1024>::create("test_read_write_over_capacity").unwrap();
+        let mut block = Box::new([0; 512]);
+        block[0] = 1;
+        assert_eq!(disk.write_block(2, &*block), Err(DiskError::OverCapacity));
+        assert_eq!(disk.read_block(2), Err(DiskError::OverCapacity));
+        remove_file(make_name("test_read_write_over_capacity")).unwrap();
+    }
+
+    #[test]
+    fn test_read_write_incorrect_block_size() {
+        let disk = Disk::<512, 1024>::create("test_read_write_incorrect_block_size").unwrap();
+        let mut block = Box::new([0; 256]);
+        block[0] = 1;
+        assert_eq!(
+            disk.write_block(0, &*block),
+            Err(DiskError::IncorrectBlockSize)
+        );
+        remove_file(make_name("test_read_write_incorrect_block_size")).unwrap();
+    }
+
+    #[test]
+    fn test_read_write_incorrect_block_size2() {
+        let disk = Disk::<512, 1024>::create("test_read_write_incorrect_block_size2").unwrap();
+        let mut block = Box::new([0; 1024]);
+        block[0] = 1;
+        assert_eq!(
+            disk.write_block(0, &*block),
+            Err(DiskError::IncorrectBlockSize)
+        );
+        remove_file(make_name("test_read_write_incorrect_block_size2")).unwrap();
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_invalid_header() {
+        let _ = Disk::<512, 1024>::create("test_invalid_header").unwrap();
+        let mut file = File::options()
+            .write(true)
+            .read(true)
+            .open(make_name("test_invalid_header"))
+            .unwrap();
+        file.seek(SeekFrom::Start(0)).unwrap();
+        file.write(&[0; 8]).unwrap();
+        Disk::<512, 1024>::connect("test_invalid_header").unwrap_err();
+        remove_file(make_name("test_invalid_header")).unwrap();
     }
 }

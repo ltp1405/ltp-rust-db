@@ -1,7 +1,5 @@
 use std::mem::{size_of, size_of_val};
 
-use my_database::table::{Row, Table};
-
 fn main() {
     // let mut table = Table::init();
     // table.insert_row(Row::new(1, "ltp1405", "ltp@gmail.com"));

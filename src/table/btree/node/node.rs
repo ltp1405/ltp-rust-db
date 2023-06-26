@@ -424,7 +424,6 @@ impl Node {
             .get_page(self.page_num as usize)
             .unwrap();
         let mut cells = Vec::new();
-        let mut holes = Vec::new();
         for i in 0..self.num_cells() {
             let pos = self.cell_pointer(i);
             let cell = self.cell_at(&page, i);
@@ -433,9 +432,9 @@ impl Node {
         }
         cells.sort_by_key(|(start, _size)| *start);
         let hole_start = cells[0].0 + cells[0].1;
-        for i in 1..cells.len() {
-            holes.push((hole_start, cell[]))
-        }
+        // for i in 1..cells.len() {
+        //     holes.push((hole_start, cell[hole]));
+        // }
         cells
     }
 

@@ -1,3 +1,5 @@
+use std::mem::size_of;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Record {
     pub buf: Vec<u8>,
@@ -6,6 +8,11 @@ pub struct Record {
 impl Record {
     pub fn new(buf: Vec<u8>) -> Self {
         Self { buf }
+    }
+
+    /// Include header
+    pub fn size(&self) -> usize {
+        self.buf.len() + size_of::<u32>()
     }
 
     pub fn serialize(&self) -> &[u8] {

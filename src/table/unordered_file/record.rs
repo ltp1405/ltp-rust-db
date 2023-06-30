@@ -1,11 +1,11 @@
 use std::mem::size_of;
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Record {
+pub struct Cell {
     pub buf: Vec<u8>,
 }
 
-impl Record {
+impl Cell {
     pub fn new(buf: Vec<u8>) -> Self {
         Self { buf }
     }

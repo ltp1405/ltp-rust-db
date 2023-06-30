@@ -28,8 +28,11 @@ pub struct FilePageHeader {
 }
 
 impl FilePageHeader {
-    pub fn new() -> Self {
-        todo!()
+    pub fn new(next: u32, free_space_start: u32) -> Self {
+        Self {
+            free_space_start,
+            next,
+        }
     }
 
     pub const fn size() -> usize {

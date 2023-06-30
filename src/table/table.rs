@@ -3,8 +3,7 @@ use std::sync::{Arc, Mutex};
 use ltp_rust_db_page::pager::Pager;
 
 use super::{
-    record::Record,
-    unordered_file::{cell::Cell, Cursor, File},
+    record::Record, unordered_file::File, cursor::Cursor,
 };
 
 pub struct Table {
@@ -12,18 +11,18 @@ pub struct Table {
 }
 
 impl Table {
-    pub fn init(filename : &str) -> Self {
+    pub fn init(filename: &str) -> Self {
         let pager = Arc::new(Mutex::new(Pager::init(filename)));
         let file = File::init(pager);
         Self { file }
     }
 
     pub fn insert(&mut self, record: Record) {
-        let cell = Cell::new(record.to_bytes());
+        let cell = record.to_cell();
         self.file.insert(cell);
     }
 
-    pub fn cursor(&self) -> Cursor {
+    pub fn cursor(&self) -> impl Cursor {
         self.file.cursor()
     }
 }
@@ -32,7 +31,10 @@ impl Table {
 mod tests {
     use std::fs::remove_file;
 
-    use crate::table::{record::{Record, Field}, schema::{Schema, DataType}};
+    use crate::table::{
+        record::{Field, Record},
+        schema::{DataType, Schema}, cursor::Cursor,
+    };
 
     use super::Table;
 
@@ -41,10 +43,15 @@ mod tests {
         let mut table = Table::init("table_basic");
 
         let schema = Schema {
-            schema: vec![DataType::Char(10), DataType::Bool, DataType::UInt, DataType::VarChar(255)],
+            schema: vec![
+                DataType::Char(10),
+                DataType::Bool,
+                DataType::UInt,
+                DataType::VarChar(255),
+            ],
         };
         let record = Record {
-            schema: schema.clone(),
+            schema: &schema,
             data: vec![
                 Field::Char(Some(b"Hello".to_vec())),
                 Field::Bool(Some(true)),
@@ -53,16 +60,15 @@ mod tests {
             ],
         };
         let bytes = record.clone().to_bytes();
-        let record2 = Record::from_bytes(schema.clone(), bytes);
+        let record2 = Record::from_bytes(&schema, bytes);
         assert_eq!(record, record2);
 
         table.insert(record.clone());
 
         let mut cursor = table.cursor();
         let r = cursor.read();
-        let record2 = Record::from_bytes(schema, r.buf);
+        let record2 = Record::from_bytes(&schema, r.buf);
         assert_eq!(record, record2);
-
 
         remove_file("table_basic").unwrap();
     }

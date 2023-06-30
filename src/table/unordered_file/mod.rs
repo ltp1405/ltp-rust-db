@@ -1,24 +1,26 @@
 mod header;
 mod node;
-pub mod cell;
 
 use std::sync::{Arc, Mutex};
 
 use ltp_rust_db_page::page::PAGE_SIZE;
 use ltp_rust_db_page::pager::Pager;
 
+use crate::table::cell::Cell;
+
 use self::header::{FileHeader, FilePageHeader};
 use self::node::{InsertResult, Node, ReadResult};
-use self::cell::Cell;
 
-pub struct Cursor {
+use super::cursor::Cursor;
+
+pub struct UnorderedFileCursor {
     pager: Arc<Mutex<Pager>>,
     page_num: u32,
     offset: usize,
     at_head: bool,
 }
 
-impl Cursor {
+impl UnorderedFileCursor {
     fn new(first_page_num: u32, pager: Arc<Mutex<Pager>>) -> Self {
         Self {
             pager,
@@ -27,8 +29,10 @@ impl Cursor {
             at_head: true,
         }
     }
+}
 
-    pub fn read(&mut self) -> Cell {
+impl Cursor for UnorderedFileCursor {
+    fn read(&mut self) -> Cell {
         let filepage = Node::new(self.at_head, self.page_num, self.pager.clone());
         let rs = unsafe { filepage.read_record_at(self.offset) };
         match rs {
@@ -38,14 +42,13 @@ impl Cursor {
                 drop(filepage);
                 let filepage = Node::new(self.at_head, page, self.pager.clone());
                 let remain = filepage.get_partial_record(remain);
-                println!("remain: {:?}", remain);
                 initial.extend(remain);
                 Cell::new(initial)
             }
         }
     }
 
-    pub fn next(&mut self) {
+    fn next(&mut self) {
         let mut pager = self.pager.lock().unwrap();
         let page = pager.get_page(self.page_num as usize).unwrap();
         let len = unsafe { page.read_val_at::<u32>(self.offset) };
@@ -91,8 +94,8 @@ impl File {
         file
     }
 
-    pub fn cursor(&self) -> Cursor {
-        Cursor::new(self.first_page_num, self.pager.clone())
+    pub fn cursor(&self) -> UnorderedFileCursor {
+        UnorderedFileCursor::new(self.first_page_num, self.pager.clone())
     }
 
     pub fn insert(&mut self, record: Cell) {

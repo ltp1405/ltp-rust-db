@@ -1,6 +1,9 @@
 use std::mem::size_of;
 
-use super::schema::{DataType, Schema};
+use super::{
+    cell::Cell,
+    schema::{DataType, Schema},
+};
 
 #[derive(Debug, PartialEq, Clone)]
 #[non_exhaustive]
@@ -16,12 +19,20 @@ pub enum Field {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Record {
-    pub schema: Schema,
+pub struct Record<'a> {
+    pub schema: &'a Schema,
     pub data: Vec<Field>,
 }
 
-impl Record {
+impl<'a> Record<'a> {
+    pub fn from_cell(schema: &'a Schema, cell: Cell) -> Record {
+        Record::from_bytes(schema, cell.to_bytes())
+    }
+
+    pub fn to_cell(self) -> Cell {
+        Cell::from_bytes(self.to_bytes())
+    }
+
     pub fn to_bytes(self) -> Vec<u8> {
         let mut buf: Vec<u8> = Vec::new();
         for (i, field) in self.data.into_iter().enumerate() {
@@ -42,7 +53,7 @@ impl Record {
                         let char_len = match field_type {
                             DataType::CharUtf8(n) => *n as usize * size_of::<char>(),
                             _ => panic!("Invalid field type"),
-                       };
+                        };
                         buf.extend_from_slice(&s.as_bytes()[..char_len]);
                     }
                 }
@@ -88,7 +99,7 @@ impl Record {
         buf
     }
 
-    pub fn from_bytes(schema: Schema, buf: Vec<u8>) -> Self {
+    pub fn from_bytes(schema: &'a Schema, buf: Vec<u8>) -> Self {
         let mut fields = Vec::new();
         let raw_fields = buf.split(|&c| c == b'|');
         for (i, field) in raw_fields.into_iter().enumerate() {
@@ -178,10 +189,15 @@ mod tests {
     #[test]
     fn test_record() {
         let schema = Schema {
-            schema: vec![DataType::Char(10), DataType::Bool, DataType::UInt, DataType::VarChar(255)],
+            schema: vec![
+                DataType::Char(10),
+                DataType::Bool,
+                DataType::UInt,
+                DataType::VarChar(255),
+            ],
         };
         let record = Record {
-            schema: schema.clone(),
+            schema: &schema,
             data: vec![
                 Field::Char(Some(b"Hello".to_vec())),
                 Field::Bool(Some(true)),
@@ -190,11 +206,11 @@ mod tests {
             ],
         };
         let bytes = record.clone().to_bytes();
-        let record2 = Record::from_bytes(schema.clone(), bytes);
+        let record2 = Record::from_bytes(&schema, bytes);
         assert_eq!(record, record2);
 
         let record = Record {
-            schema: schema.clone(),
+            schema: &schema,
             data: vec![
                 Field::Char(Some(b"Hello, World".to_vec())),
                 Field::Bool(Some(true)),
@@ -203,7 +219,7 @@ mod tests {
             ],
         };
         let bytes = record.clone().to_bytes();
-        let record2 = Record::from_bytes(schema, bytes);
+        let record2 = Record::from_bytes(&schema, bytes);
         match record2.data[0] {
             Field::Char(Some(ref s)) => assert_eq!(s.len(), 10),
             _ => panic!("Invalid field type"),

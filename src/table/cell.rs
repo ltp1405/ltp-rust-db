@@ -6,6 +6,14 @@ pub struct Cell {
 }
 
 impl Cell {
+    pub fn to_bytes(self) -> Vec<u8> {
+        self.buf
+    }
+
+    pub fn from_bytes(bytes: Vec<u8>) -> Self {
+        Self { buf: bytes }
+    }
+
     pub fn new(buf: Vec<u8>) -> Self {
         Self { buf }
     }

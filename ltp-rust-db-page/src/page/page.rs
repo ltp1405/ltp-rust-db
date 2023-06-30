@@ -1,6 +1,5 @@
 use std::{
     mem::size_of,
-    ops::{Deref, DerefMut},
     ptr::{slice_from_raw_parts, slice_from_raw_parts_mut},
     sync::{Arc, RwLock},
 };

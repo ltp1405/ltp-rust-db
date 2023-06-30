@@ -5,9 +5,9 @@ use std::{
 
 use ltp_rust_db_page::{page::PAGE_SIZE, pager::Pager};
 
-use crate::table::unordered_file::header::FilePageHeader;
+use crate::table::{unordered_file::header::FilePageHeader, cell::Cell};
 
-use super::{cell::Cell, header::FileHeader};
+use super::header::FileHeader;
 
 pub enum InsertResult {
     Normal,
@@ -194,7 +194,7 @@ mod tests {
 
     use ltp_rust_db_page::{page::PAGE_SIZE, pager::Pager};
 
-    use crate::table::unordered_file::{header::FilePageHeader, cell::Cell, Node};
+    use crate::table::{unordered_file::{node::Node, header::FilePageHeader}, cell::Cell};
 
     use super::{InsertResult, ReadResult};
 

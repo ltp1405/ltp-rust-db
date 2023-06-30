@@ -4,7 +4,7 @@ use super::schema::{DataType, Schema};
 
 #[derive(Debug, PartialEq, Clone)]
 #[non_exhaustive]
-enum Field {
+pub enum Field {
     Char(Option<Vec<u8>>),
     CharUtf8(Option<String>),
     Bool(Option<bool>),
@@ -16,13 +16,13 @@ enum Field {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-struct Record {
-    schema: Schema,
-    data: Vec<Field>,
+pub struct Record {
+    pub schema: Schema,
+    pub data: Vec<Field>,
 }
 
 impl Record {
-    fn to_bytes(self) -> Vec<u8> {
+    pub fn to_bytes(self) -> Vec<u8> {
         let mut buf: Vec<u8> = Vec::new();
         for (i, field) in self.data.into_iter().enumerate() {
             let field_type = self.schema.get_field_type(i);
@@ -42,7 +42,7 @@ impl Record {
                         let char_len = match field_type {
                             DataType::CharUtf8(n) => *n as usize * size_of::<char>(),
                             _ => panic!("Invalid field type"),
-                        };
+                       };
                         buf.extend_from_slice(&s.as_bytes()[..char_len]);
                     }
                 }
@@ -67,13 +67,8 @@ impl Record {
                     }
                 }
                 Field::VarChar(s) => {
-                    if let Some(mut s) = s {
-                        let char_len = match field_type {
-                            DataType::VarChar(n) => *n as usize,
-                            _ => panic!("Invalid field type"),
-                        };
-                        s.resize(char_len, b'\0');
-                        buf.extend_from_slice(&s[..char_len]);
+                    if let Some(s) = s {
+                        buf.extend_from_slice(&s);
                     }
                 }
                 Field::VarCharUtf8(s) => {
@@ -93,7 +88,7 @@ impl Record {
         buf
     }
 
-    fn from_bytes(schema: Schema, buf: Vec<u8>) -> Self {
+    pub fn from_bytes(schema: Schema, buf: Vec<u8>) -> Self {
         let mut fields = Vec::new();
         let raw_fields = buf.split(|&c| c == b'|');
         for (i, field) in raw_fields.into_iter().enumerate() {
@@ -155,7 +150,7 @@ impl Record {
                         fields.push(Field::VarChar(None));
                         continue;
                     }
-                    let field = field.split(|&c| c == b'\0').next().unwrap();
+                    let field = field.split(|&c| c == b'\0' || c == b'\n').next().unwrap();
                     fields.push(Field::VarChar(Some(field.to_vec())));
                 }
                 DataType::VarCharUtf8(n) => {
@@ -195,7 +190,23 @@ mod tests {
             ],
         };
         let bytes = record.clone().to_bytes();
-        let record2 = Record::from_bytes(schema, bytes);
+        let record2 = Record::from_bytes(schema.clone(), bytes);
         assert_eq!(record, record2);
+
+        let record = Record {
+            schema: schema.clone(),
+            data: vec![
+                Field::Char(Some(b"Hello, World".to_vec())),
+                Field::Bool(Some(true)),
+                Field::UInt(Some(42)),
+                Field::VarChar(Some(b"World".to_vec())),
+            ],
+        };
+        let bytes = record.clone().to_bytes();
+        let record2 = Record::from_bytes(schema, bytes);
+        match record2.data[0] {
+            Field::Char(Some(ref s)) => assert_eq!(s.len(), 10),
+            _ => panic!("Invalid field type"),
+        }
     }
 }

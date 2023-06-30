@@ -1,6 +1,6 @@
 mod header;
 mod node;
-pub mod record;
+pub mod cell;
 
 use std::sync::{Arc, Mutex};
 
@@ -9,7 +9,7 @@ use ltp_rust_db_page::pager::Pager;
 
 use self::header::{FileHeader, FilePageHeader};
 use self::node::{InsertResult, Node, ReadResult};
-use self::record::Cell;
+use self::cell::Cell;
 
 pub struct Cursor {
     pager: Arc<Mutex<Pager>>,
@@ -73,7 +73,8 @@ pub struct File {
 }
 
 impl File {
-    pub fn init(page_num: usize, pager: Arc<Mutex<Pager>>) -> Self {
+    pub fn init(pager: Arc<Mutex<Pager>>) -> Self {
+        let page_num = pager.lock().unwrap().get_free_page().unwrap();
         let file = File {
             first_page_num: page_num as u32,
             pager,
@@ -141,7 +142,7 @@ mod tests {
     #[test]
     fn simple_read() {
         let pager = Arc::new(Mutex::new(Pager::init("test_simple_read")));
-        let mut file = File::init(1, pager);
+        let mut file = File::init(pager);
         let record = Cell::new(vec![1, 2, 3]);
         file.insert(record);
         let mut cursor = file.cursor();
@@ -153,8 +154,7 @@ mod tests {
     #[test]
     fn complete_read() {
         let pager = Arc::new(Mutex::new(Pager::init("test_complete_read")));
-        let free_page = pager.lock().unwrap().get_free_page().unwrap();
-        let mut file = File::init(free_page, pager);
+        let mut file = File::init(pager);
         let record = Cell::new([1; 2000].to_vec());
         file.insert(record);
         let record2 = Cell::new([2; 2500].to_vec());
@@ -200,13 +200,13 @@ mod tests {
     #[test]
     fn simple_insert() {
         let pager = Arc::new(Mutex::new(Pager::init("test_simple_insert")));
-        let mut file = File::init(1, pager);
+        let mut file = File::init(pager);
         let record = Cell::new(vec![1, 2, 3]);
         file.insert(record);
         let record2 = Cell::new(vec![4, 5, 6, 7, 8, 9]);
         file.insert(record2);
 
-        let page = file.pager.lock().unwrap().get_page(1).unwrap();
+        let page = file.pager.lock().unwrap().get_page(0).unwrap();
         let len = unsafe { page.read_val_at::<u32>(FileHeader::size() + FilePageHeader::size()) };
         assert_eq!(len, 4 + 3);
         let buf = page.read_buf_at(
@@ -231,8 +231,7 @@ mod tests {
     #[test]
     fn complete_insert() {
         let pager = Arc::new(Mutex::new(Pager::init("test_complete_insert")));
-        let free_page = pager.lock().unwrap().get_free_page().unwrap();
-        let mut file = File::init(free_page, pager);
+        let mut file = File::init(pager);
         let record = Cell::new([1; 2000].to_vec());
         file.insert(record);
         let record2 = Cell::new([2; 2500].to_vec());

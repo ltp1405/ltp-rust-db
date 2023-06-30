@@ -7,7 +7,7 @@ use ltp_rust_db_page::{page::PAGE_SIZE, pager::Pager};
 
 use crate::table::unordered_file::header::FilePageHeader;
 
-use super::{header::FileHeader, record::Cell};
+use super::{cell::Cell, header::FileHeader};
 
 pub enum InsertResult {
     Normal,
@@ -187,11 +187,14 @@ impl Node {
 
 #[cfg(test)]
 mod tests {
-    use std::{sync::{Arc, Mutex}, fs::remove_file};
+    use std::{
+        fs::remove_file,
+        sync::{Arc, Mutex},
+    };
 
     use ltp_rust_db_page::{page::PAGE_SIZE, pager::Pager};
 
-    use crate::table::unordered_file::{header::FilePageHeader, record::Cell, Node};
+    use crate::table::unordered_file::{header::FilePageHeader, cell::Cell, Node};
 
     use super::{InsertResult, ReadResult};
 

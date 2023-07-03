@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn a_lot_of_insert() {
-        let mut table = Table::init("table_a_lot_of_insert");
+        let mut table = Table::init("test_table_a_lot_of_insert");
 
         let schema = Schema {
             schema: vec![
@@ -180,18 +180,15 @@ mod tests {
             ],
         };
 
-        for _ in 0..10000 {
+        for _ in 0..100000 {
             table.insert(record.clone());
         }
 
         for r in table.cursor() {
             let record2 = Record::from_bytes(&schema, r.buf);
-            if let Some(Field::UInt(Some(v))) = record2.data.get(2) {
-                println!("{}", v);
-            }
             assert_eq!(record, record2);
         }
 
-        remove_file("table_a_lot_of_insert").unwrap();
+        remove_file("test_table_a_lot_of_insert").unwrap();
     }
 }

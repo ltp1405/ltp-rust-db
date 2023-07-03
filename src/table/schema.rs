@@ -58,7 +58,6 @@ impl Schema {
         let buf = &buf[..buf.len() - 1];
         let fields = buf.split(|&c| c == b'|');
         for field in fields {
-            println!("{:?}", field);
             match field[0] {
                 b'c' => {
                     let n = u32::from_be_bytes(field[1..1 + size_of::<u32>()].try_into().unwrap());

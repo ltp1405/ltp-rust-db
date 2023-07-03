@@ -5,7 +5,7 @@ use std::{
 
 use ltp_rust_db_page::{page::PAGE_SIZE, pager::Pager};
 
-use crate::table::{unordered_file::header::FilePageHeader, cell::Cell};
+use crate::table::{cell::Cell, unordered_file::header::FilePageHeader};
 
 use super::header::FileHeader;
 
@@ -85,7 +85,6 @@ impl Node {
             return ReadResult::EndOfFile;
         }
         let payload_len = page.read_val_at::<u32>(start) - size_of::<u32>() as u32;
-        println!("start: {}, len: {}", start, payload_len);
         if payload_len as usize + start < PAGE_SIZE - size_of::<u32>() {
             let buf = page
                 .read_buf_at(start + size_of::<u32>(), payload_len as usize)
@@ -146,7 +145,6 @@ impl Node {
 
         let start = offset as usize;
         let end = start + record.size();
-        println!("start: {}, end: {}", start, end);
 
         if record.buf.len() >= PAGE_SIZE - 12 {
             panic!(
@@ -154,10 +152,10 @@ impl Node {
                 PAGE_SIZE - 12
             );
         }
-        if start >= PAGE_SIZE - size_of::<u32>() {
-            // create new page for the record
-            // todo!();
-            // return InsertResult::OutOfSpace;
+        if PAGE_SIZE - start < size_of::<u32>(){
+            // Not enough space to store the record size
+            // This record should be stored in a new page
+            return InsertResult::OutOfSpace;
         }
         if end < PAGE_SIZE {
             // record can be inserted in a single page
@@ -197,11 +195,12 @@ mod tests {
         sync::{Arc, Mutex},
     };
 
-    use ltp_rust_db_page::{page::PAGE_SIZE, pager::Pager};
+    use ltp_rust_db_page::pager::Pager;
 
-    use crate::table::{unordered_file::{node::Node, header::{FilePageHeader, FileHeader}}, cell::Cell};
-
-    use super::{InsertResult, ReadResult};
+    use crate::table::unordered_file::{
+            header::FilePageHeader,
+            node::Node,
+        };
 
     #[test]
     fn next() {

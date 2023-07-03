@@ -4,18 +4,26 @@ use ltp_rust_db_page::page::Page;
 
 pub struct FileHeader {
     pub cell_count: u64,
+    pub head_page_num: u32,
+    pub tail_page_num: u32,
 }
 
 impl FileHeader {
     pub const fn size() -> usize {
-        size_of::<u64>()
+        size_of::<u64>() + size_of::<u32>() + size_of::<u64>()
     }
 
     pub fn read_from(page: Page) -> Self {
         let offset = 0;
         unsafe {
             let cell_count = page.read_val_at::<u64>(offset);
-            Self { cell_count }
+            let head_page_num = page.read_val_at::<u32>(offset + size_of::<u64>());
+            let tail_page_num = page.read_val_at::<u32>(offset + size_of::<u64>() + size_of::<u32>());
+            Self {
+                cell_count,
+                head_page_num,
+                tail_page_num,
+            }
         }
     }
 
@@ -23,6 +31,11 @@ impl FileHeader {
         let offset = 0;
         unsafe {
             page.write_val_at::<u64>(offset, self.cell_count);
+            page.write_val_at::<u32>(offset + size_of::<u64>(), self.head_page_num);
+            page.write_val_at::<u32>(
+                offset + size_of::<u64>() + size_of::<u32>(),
+                self.tail_page_num,
+            );
         }
     }
 }

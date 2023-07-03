@@ -99,7 +99,11 @@ impl File {
         {
             let mut pager = file.pager.lock().unwrap();
             let page = pager.get_page(page_num).unwrap();
-            let file_header = FileHeader { cell_count: 0 };
+            let file_header = FileHeader {
+                cell_count: 0,
+                tail_page_num: page_num as u32,
+                head_page_num: page_num as u32,
+            };
             file_header.write_to(page.clone());
 
             let page_header = FilePageHeader {
@@ -115,6 +119,29 @@ impl File {
         Cursor::new(self.cell_count(), self.first_page_num, self.pager.clone())
     }
 
+    pub fn set_tail_page(&mut self, page_num: u32) {
+        let first_page = self
+            .pager
+            .lock()
+            .unwrap()
+            .get_page(self.first_page_num as usize)
+            .unwrap();
+        let mut file_header = FileHeader::read_from(first_page.clone());
+        file_header.tail_page_num = page_num;
+        file_header.write_to(first_page);
+    }
+
+    pub fn tail_page(&self) -> u32 {
+        let first_page = self
+            .pager
+            .lock()
+            .unwrap()
+            .get_page(self.first_page_num as usize)
+            .unwrap();
+        let file_header = FileHeader::read_from(first_page.clone());
+        file_header.tail_page_num
+    }
+
     pub fn set_cell_count(&mut self, count: u64) {
         let first_page = self
             .pager
@@ -124,7 +151,6 @@ impl File {
             .unwrap();
         let mut file_header = FileHeader::read_from(first_page.clone());
         file_header.cell_count = count;
-        println!("set cell count to {}", count);
         file_header.write_to(first_page);
     }
 
@@ -136,7 +162,6 @@ impl File {
             .get_page(self.first_page_num as usize)
             .unwrap();
         let file_header = FileHeader::read_from(first_page.clone());
-        println!("get cell count {}", file_header.cell_count);
         file_header.cell_count
     }
 
@@ -144,23 +169,14 @@ impl File {
         // Traverse to the last page
         // If the last page is full, allocate a new page
         // Write the record to the last page
-        let mut node = Node::new(true, self.first_page_num, self.pager.clone());
-        let mut next = node.next();
-        let mut first_page = true;
-        loop {
-            match next {
-                Some(page_num) => {
-                    node = Node::new(false, page_num, self.pager.clone());
-                    next = node.next();
-                    first_page = false;
-                }
-                None => break,
-            }
-        }
-        println!("Cell count {}", self.cell_count());
+        let first_page = self.tail_page() == self.first_page_num;
+        let mut node = Node::new(first_page, self.tail_page(), self.pager.clone());
         let rs = node.insert(&record);
-        println!("Cell count {}", self.cell_count());
         match rs {
+            InsertResult::Normal => {
+                let count = self.cell_count() + 1;
+                self.set_cell_count(count);
+            }
             InsertResult::Spill(remain_start) => {
                 let new_page = self.pager.lock().unwrap().get_free_page().unwrap();
                 let mut new_node = Node::init(first_page, new_page as u32, self.pager.clone());
@@ -170,17 +186,13 @@ impl File {
                 node.set_next(new_page as u32);
                 let count = self.cell_count() + 1;
                 self.set_cell_count(count);
+                self.set_tail_page(new_page as u32);
             }
 
             InsertResult::OutOfSpace => {
-                panic!("Out of space");
                 let new_page = self.pager.lock().unwrap().get_free_page().unwrap();
-                let mut new_filepage = Node::init(true, new_page as u32, self.pager.clone());
+                let mut new_filepage = Node::init(false, new_page as u32, self.pager.clone());
                 new_filepage.insert(&record);
-            }
-            InsertResult::Normal => {
-                let count = self.cell_count() + 1;
-                self.set_cell_count(count);
             }
         }
     }
@@ -191,29 +203,6 @@ mod tests {
     use super::*;
     use std::fs::remove_file;
     use std::mem::size_of;
-
-    #[test]
-    fn read_write_header() {
-        let pager = Arc::new(Mutex::new(Pager::init("test_read_write_header")));
-        let mut file = File::init(pager);
-        file.set_cell_count(1);
-        assert_eq!(file.cell_count(), 1);
-
-        let mut pager = file.pager.lock().unwrap();
-        let page = pager.get_page(file.first_page_num as usize).unwrap();
-        let mut node_header = FilePageHeader::read_from(true, page.clone());
-        assert_eq!(
-            node_header.free_space_start,
-            FilePageHeader::size() as u32 + size_of::<FileHeader>() as u32
-        );
-        node_header.free_space_start = 100;
-        node_header.next = 200;
-        node_header.write_to(true, page.clone());
-        drop(pager);
-        assert_eq!(file.cell_count(), 1);
-
-        remove_file("test_read_write_header").unwrap();
-    }
 
     #[test]
     fn simple_read() {

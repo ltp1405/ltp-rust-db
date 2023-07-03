@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests;
 
-const TABLE_MAX_PAGES: usize = 1000;
+const TABLE_MAX_PAGES: usize = 10000;
 use std::{
     fs::File,
     io::{Read, Seek, Write},

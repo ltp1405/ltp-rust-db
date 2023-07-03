@@ -67,9 +67,127 @@ mod tests {
 
         let mut cursor = table.cursor();
         let r = cursor.read();
-        let record2 = Record::from_bytes(&schema, r.buf);
+        let record2 = Record::from_bytes(&schema, r.unwrap().buf);
         assert_eq!(record, record2);
 
         remove_file("table_basic").unwrap();
+    }
+
+    #[test]
+    fn simple_insert() {
+        let mut table = Table::init("table_simple_insert");
+
+        let schema = Schema {
+            schema: vec![
+                DataType::Char(10),
+                DataType::Bool,
+                DataType::UInt,
+                DataType::VarChar(255),
+            ],
+        };
+        let record = Record {
+            schema: schema.clone(),
+            data: vec![
+                Field::Char(Some(b"Hello".to_vec())),
+                Field::Bool(Some(true)),
+                Field::UInt(Some(42)),
+                Field::VarChar(Some(b"World".to_vec())),
+            ],
+        };
+
+        for _ in 0..10 {
+            table.insert(record.clone());
+        }
+
+        for r in table.cursor() {
+            let record2 = Record::from_bytes(schema.clone(), r.buf);
+            assert_eq!(record, record2);
+        }
+
+        remove_file("table_simple_insert").unwrap();
+    }
+
+    #[test]
+    fn big_record_insert() {
+        let mut table = Table::init("table_big_record_insert");
+
+        let schema = Schema {
+            schema: vec![
+                DataType::Int,
+                DataType::Int,
+                DataType::Int,
+                DataType::Char(10),
+                DataType::Char(10),
+                DataType::Char(10),
+                DataType::Bool,
+                DataType::Bool,
+                DataType::Float,
+                DataType::UInt,
+                DataType::VarChar(255),
+                DataType::VarChar(255),
+            ],
+        };
+        let record = Record {
+            schema: schema.clone(),
+            data: vec![
+                Field::Int(Some(1)),
+                Field::Int(Some(2)),
+                Field::Int(Some(3)),
+                Field::Char(Some(b"Hello".to_vec())),
+                Field::Char(Some(b"Hello".to_vec())),
+                Field::Char(Some(b"Hello".to_vec())),
+                Field::Bool(Some(true)),
+                Field::Bool(Some(true)),
+                Field::Float(Some(1.0)),
+                Field::UInt(Some(42)),
+                Field::VarChar(Some(b"World".to_vec())),
+                Field::VarChar(Some(b"World".to_vec())),
+            ],
+        };
+
+        for _ in 0..1000 {
+            table.insert(record.clone());
+        }
+
+        for cell in table.cursor() {
+            let record2 = Record::from_bytes(schema.clone(), cell.buf);
+            assert_eq!(record, record2);
+        }
+
+        remove_file("table_big_record_insert").unwrap();
+    }
+
+    #[test]
+    fn a_lot_of_insert() {
+        let mut table = Table::init("table_a_lot_of_insert");
+
+        let schema = Schema {
+            schema: vec![
+                DataType::Char(10),
+                DataType::Bool,
+                DataType::UInt,
+                DataType::VarChar(255),
+            ],
+        };
+        let record = Record {
+            schema: schema.clone(),
+            data: vec![
+                Field::Char(Some(b"Hello".to_vec())),
+                Field::Bool(Some(true)),
+                Field::UInt(Some(42)),
+                Field::VarChar(Some(b"World".to_vec())),
+            ],
+        };
+
+        for _ in 0..100000 {
+            table.insert(record.clone());
+        }
+
+        for r in table.cursor() {
+            let record2 = Record::from_bytes(schema.clone(), r.buf);
+            assert_eq!(record, record2);
+        }
+
+        remove_file("table_a_lot_of_insert").unwrap();
     }
 }

@@ -2,23 +2,28 @@ use std::mem::size_of;
 
 use ltp_rust_db_page::page::Page;
 
-pub struct FileHeader {}
+pub struct FileHeader {
+    pub cell_count: u64,
+}
 
 impl FileHeader {
     pub const fn size() -> usize {
-        0
-    }
-
-    pub fn new() -> Self {
-        todo!()
+        size_of::<u64>()
     }
 
     pub fn read_from(page: Page) -> Self {
-        todo!()
+        let offset = 0;
+        unsafe {
+            let cell_count = page.read_val_at::<u64>(offset);
+            Self { cell_count }
+        }
     }
 
     pub fn write_to(&self, page: Page) {
-        todo!()
+        let offset = 0;
+        unsafe {
+            page.write_val_at::<u64>(offset, self.cell_count);
+        }
     }
 }
 
@@ -39,8 +44,8 @@ impl FilePageHeader {
         size_of::<u32>() * 2
     }
 
-    pub fn read_from(first_page: bool, page: Page) -> Self {
-        let offset = if first_page { FileHeader::size() } else { 0 };
+    pub fn read_from(is_head: bool, page: Page) -> Self {
+        let offset = if is_head { FileHeader::size() } else { 0 };
         unsafe {
             let free_space_start = page.read_val_at(offset);
             let next = page.read_val_at(offset + size_of::<u32>());
@@ -51,12 +56,11 @@ impl FilePageHeader {
         }
     }
 
-    pub fn write_to(&self, first_page: bool, disk: Page) {
-        let offset = if first_page { FileHeader::size() } else { 0 };
+    pub fn write_to(&self, is_head: bool, page: Page) {
+        let offset = if is_head { FileHeader::size() } else { 0 };
         unsafe {
-            disk.write_val_at(offset, self.free_space_start);
-            disk.write_val_at(offset + size_of::<u32>(), self.next);
+            page.write_val_at(offset, self.free_space_start);
+            page.write_val_at(offset + size_of::<u32>(), self.next);
         }
     }
 }
-

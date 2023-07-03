@@ -154,8 +154,7 @@ mod tests {
             let record2 = Record::from_bytes(&schema, cell.buf);
             assert_eq!(record, record2);
         }
-
-        remove_file("table_big_record_insert").unwrap();
+        // remove_file("table_big_record_insert").unwrap();
     }
 
     #[test]

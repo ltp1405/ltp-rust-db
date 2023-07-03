@@ -124,3 +124,9 @@ impl Pager {
         }
     }
 }
+
+impl Drop for Pager {
+    fn drop(&mut self) {
+        self.flush();
+    }
+}

@@ -11,19 +11,6 @@ pub struct Page {
     buffer: Arc<RwLock<Box<[u8; PAGE_SIZE]>>>,
 }
 
-// impl Deref for Page {
-//     type Target = Arc<RwLock<[u8; PAGE_SIZE]>>;
-//     fn deref(&self) -> &Self::Target {
-//         &self.buffer
-//     }
-// }
-
-// impl DerefMut for Page {
-//     fn deref_mut(&mut self) -> &mut Self::Target {
-//         &mut self.buffer
-//     }
-// }
-
 impl Page {
     pub fn init() -> Self {
         let buf = Box::new([0; PAGE_SIZE]);

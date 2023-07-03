@@ -1,7 +1,9 @@
+mod page_table;
+
 #[cfg(test)]
 mod tests;
 
-const TABLE_MAX_PAGES: usize = 10000;
+const TABLE_MAX_PAGES: usize = 1000;
 use std::{
     fs::File,
     io::{Read, Seek, Write},
@@ -9,13 +11,15 @@ use std::{
 
 use crate::page::{Page, PAGE_SIZE};
 
-#[derive(Debug)]
+use self::page_table::PageTable;
+
 pub struct Pager {
     file: File,
 
-    pages_num: usize,
+    frames_num: usize,
     // Pages in memory
     pages: Vec<Option<Page>>,
+    page_table: PageTable,
 }
 
 impl Pager {
@@ -26,33 +30,18 @@ impl Pager {
             .read(true)
             .open(filename)
             .unwrap();
+        file.set_len(TABLE_MAX_PAGES as u64 * PAGE_SIZE as u64)
+            .unwrap();
         let mut pages = Vec::new();
-        let file_length = file.seek(std::io::SeekFrom::End(0)).unwrap();
         file.seek(std::io::SeekFrom::Start(0)).unwrap();
-        let pages_in_file = file_length / PAGE_SIZE as u64;
-
-        for _ in 0..pages_in_file {
-            let mut new_page = Page::init();
-            let mut buf = vec![];
-            file.read_exact(&mut buf).unwrap();
-            new_page.write_buf_at(0, &buf);
-            pages.push(Some(new_page));
-        }
-
-        for _ in pages_in_file..TABLE_MAX_PAGES as u64 {
-            pages.push(None)
-        }
-
-        Self {
-            file,
-            pages,
-            pages_num: pages_in_file as usize,
-        }
+        let page_table = PageTable::init();
+        pages.resize_with(TABLE_MAX_PAGES, || None);
+        Self { file, frames_num:  pages: (), page_table: () }
     }
 
     pub fn get_free_page(&mut self) -> Option<usize> {
-        let rs = Some(self.pages_num);
-        self.pages_num += 1;
+        let rs = Some(self.frames_num);
+        self.frames_num += 1;
         rs
     }
 
@@ -68,7 +57,7 @@ impl Pager {
         }
 
         let page = self.pages[page_num].get_or_insert_with(|| {
-            self.pages_num += 1;
+            self.frames_num += 1;
             Page::init()
         });
         let file_length = self.file.seek(std::io::SeekFrom::End(0)).unwrap();
@@ -93,7 +82,7 @@ impl Pager {
             return None;
         }
         let page = self.pages[page_num].get_or_insert_with(|| {
-            self.pages_num += 1;
+            self.frames_num += 1;
             Page::init()
         });
         let file_length = self.file.seek(std::io::SeekFrom::End(0)).unwrap();

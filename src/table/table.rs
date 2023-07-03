@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use ltp_rust_db_page::pager::Pager;
 
 use super::{
-    record::Record, unordered_file::File, cursor::Cursor,
+    record::Record, unordered_file::{File, Cursor}
 };
 
 pub struct Table {
@@ -22,7 +22,7 @@ impl Table {
         self.file.insert(cell);
     }
 
-    pub fn cursor(&self) -> impl Cursor {
+    pub fn cursor(&self) -> Cursor {
         self.file.cursor()
     }
 }
@@ -33,7 +33,7 @@ mod tests {
 
     use crate::table::{
         record::{Field, Record},
-        schema::{DataType, Schema}, cursor::Cursor,
+        schema::{DataType, Schema},
     };
 
     use super::Table;
@@ -86,7 +86,7 @@ mod tests {
             ],
         };
         let record = Record {
-            schema: schema.clone(),
+            schema: &schema,
             data: vec![
                 Field::Char(Some(b"Hello".to_vec())),
                 Field::Bool(Some(true)),
@@ -100,7 +100,7 @@ mod tests {
         }
 
         for r in table.cursor() {
-            let record2 = Record::from_bytes(schema.clone(), r.buf);
+            let record2 = Record::from_bytes(&schema, r.buf);
             assert_eq!(record, record2);
         }
 
@@ -128,7 +128,7 @@ mod tests {
             ],
         };
         let record = Record {
-            schema: schema.clone(),
+            schema: &schema,
             data: vec![
                 Field::Int(Some(1)),
                 Field::Int(Some(2)),
@@ -150,7 +150,7 @@ mod tests {
         }
 
         for cell in table.cursor() {
-            let record2 = Record::from_bytes(schema.clone(), cell.buf);
+            let record2 = Record::from_bytes(&schema, cell.buf);
             assert_eq!(record, record2);
         }
 
@@ -170,7 +170,7 @@ mod tests {
             ],
         };
         let record = Record {
-            schema: schema.clone(),
+            schema: &schema,
             data: vec![
                 Field::Char(Some(b"Hello".to_vec())),
                 Field::Bool(Some(true)),
@@ -184,7 +184,7 @@ mod tests {
         }
 
         for r in table.cursor() {
-            let record2 = Record::from_bytes(schema.clone(), r.buf);
+            let record2 = Record::from_bytes(&schema, r.buf);
             assert_eq!(record, record2);
         }
 

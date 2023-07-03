@@ -1,4 +1,3 @@
-pub mod cell;
 mod header;
 mod node;
 
@@ -7,13 +6,12 @@ use std::sync::{Arc, Mutex};
 use ltp_rust_db_page::page::PAGE_SIZE;
 use ltp_rust_db_page::pager::Pager;
 
-use self::cell::Cell;
 use self::header::{FileHeader, FilePageHeader};
 use self::node::{InsertResult, Node, ReadResult};
 
-use super::cursor::Cursor;
+use super::cell::Cell;
 
-pub struct UnorderedFileCursor {
+pub struct Cursor {
     pager: Arc<Mutex<Pager>>,
     page_num: u32,
     offset: usize,
@@ -36,13 +34,8 @@ impl Iterator for Cursor {
     }
 }
 
-<<<<<<< HEAD
-impl UnorderedFileCursor {
-    fn new(first_page_num: u32, pager: Arc<Mutex<Pager>>) -> Self {
-=======
 impl Cursor {
-    fn new(cell_count: u64, first_page_num: u32, pager: Arc<Mutex<Pager>>) -> Self {
->>>>>>> 8be1ff71d92d6d0179fe53e30921711d69f923c5
+    pub fn new(cell_count: u64, first_page_num: u32, pager: Arc<Mutex<Pager>>) -> Self {
         Self {
             cur_cell: 0,
             cell_count,
@@ -52,14 +45,8 @@ impl Cursor {
             at_head: true,
         }
     }
-}
 
-<<<<<<< HEAD
-impl Cursor for UnorderedFileCursor {
-    fn read(&mut self) -> Cell {
-=======
     pub fn read(&mut self) -> Option<Cell> {
->>>>>>> 8be1ff71d92d6d0179fe53e30921711d69f923c5
         let filepage = Node::new(self.at_head, self.page_num, self.pager.clone());
         let rs = unsafe { filepage.read_record_at(self.offset) };
         match rs {
@@ -76,11 +63,7 @@ impl Cursor for UnorderedFileCursor {
         }
     }
 
-<<<<<<< HEAD
-    fn next(&mut self) {
-=======
     pub fn _next(&mut self) {
->>>>>>> 8be1ff71d92d6d0179fe53e30921711d69f923c5
         let mut pager = self.pager.lock().unwrap();
         let page = pager.get_page(self.page_num as usize).unwrap();
         let len = unsafe { page.read_val_at::<u32>(self.offset) };

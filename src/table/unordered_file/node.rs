@@ -23,6 +23,7 @@ pub struct Node {
 
 #[derive(Debug)]
 pub enum ReadResult {
+    EndOfFile,
     Normal(Cell),
     Partial(Vec<u8>, usize),
 }
@@ -79,6 +80,10 @@ impl Node {
     pub unsafe fn read_record_at(&self, start: usize) -> ReadResult {
         let mut pager = self.pager.lock().unwrap();
         let page = pager.get_page(self.page_num as usize).unwrap();
+        let size = page.read_val_at::<u32>(start) as usize;
+        if size == 0 {
+            return ReadResult::EndOfFile;
+        }
         let payload_len = page.read_val_at::<u32>(start) - size_of::<u32>() as u32;
         println!("start: {}, len: {}", start, payload_len);
         if payload_len as usize + start < PAGE_SIZE - size_of::<u32>() {
@@ -149,10 +154,10 @@ impl Node {
                 PAGE_SIZE - 12
             );
         }
-        if start >= PAGE_SIZE - 4 {
+        if start >= PAGE_SIZE - size_of::<u32>() {
             // create new page for the record
-            todo!();
-            return InsertResult::OutOfSpace;
+            // todo!();
+            // return InsertResult::OutOfSpace;
         }
         if end < PAGE_SIZE {
             // record can be inserted in a single page
@@ -165,7 +170,7 @@ impl Node {
                 free_space_start: end as u32,
                 next: 0,
             };
-            page_header.write_to(false, page.clone());
+            page_header.write_to(self.is_head, page.clone());
             return InsertResult::Normal;
         } else {
             // record cannot be inserted in a single page and should be spilled
@@ -229,6 +234,9 @@ mod tests {
                 assert_eq!(record.buf, vec![1, 2, 3]);
             }
             ReadResult::Partial(_, _) => {
+                panic!("should be normal");
+            }
+            _ => {
                 panic!("should be normal");
             }
         }

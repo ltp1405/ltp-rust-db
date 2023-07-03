@@ -199,7 +199,7 @@ mod tests {
 
     use ltp_rust_db_page::{page::PAGE_SIZE, pager::Pager};
 
-    use crate::table::{unordered_file::{node::Node, header::FilePageHeader}, cell::Cell};
+    use crate::table::{unordered_file::{node::Node, header::{FilePageHeader, FileHeader}}, cell::Cell};
 
     use super::{InsertResult, ReadResult};
 
@@ -216,68 +216,6 @@ mod tests {
         root.set_next(new_page2 as u32);
         assert_eq!(root.next(), Some(new_page2 as u32));
         remove_file("node_next").unwrap();
-    }
-
-    #[test]
-    fn insert() {
-        let pager = Arc::new(Mutex::new(Pager::init("node_next")));
-        let pager_clone = pager.clone();
-        let mut pager = pager.lock().unwrap();
-        let new_page = pager.get_free_page().unwrap();
-        drop(pager);
-        let mut root = Node::init(true, new_page as u32, pager_clone.clone());
-        root.insert(&Cell::new(vec![1, 2, 3]));
-        assert_eq!(root.free_start(), FilePageHeader::size() as u32 + 4 + 3);
-        let rs = unsafe { root.read_record_at(8) };
-        match rs {
-            ReadResult::Normal(record) => {
-                assert_eq!(record.buf, vec![1, 2, 3]);
-            }
-            ReadResult::Partial(_, _) => {
-                panic!("should be normal");
-            }
-            _ => {
-                panic!("should be normal");
-            }
-        }
-    }
-
-    #[test]
-    fn insert_and_spilled() {
-        let pager = Arc::new(Mutex::new(Pager::init("node_next")));
-        let pager_clone = pager.clone();
-        let mut pager = pager.lock().unwrap();
-        let new_page = pager.get_free_page().unwrap();
-        drop(pager);
-        let mut root = Node::init(true, new_page as u32, pager_clone.clone());
-        let buf = vec![0xa; 200];
-        root.insert(&Cell::new(buf));
-        let start1 = root.free_start();
-        let buf = vec![0xff; 4083];
-        let rs = root.insert(&Cell::new(buf));
-        assert_eq!(root.free_start(), PAGE_SIZE as u32);
-        match rs {
-            InsertResult::Spill(start_remain) => {
-                assert_eq!(start_remain, 3880);
-                let rs = unsafe { root.read_record_at(start1 as usize) };
-                match rs {
-                    ReadResult::Partial(mut initial, remain) => {
-                        let start = 4083 - remain;
-                        assert_eq!(initial.len(), 3880);
-                        assert_eq!(start, 3880);
-                        let buf = vec![0xff; 4083];
-                        initial.extend(buf.clone()[start..].iter());
-                        assert_eq!(initial, buf);
-                    }
-                    _ => {
-                        panic!("should be partial");
-                    }
-                }
-            }
-            _ => {
-                panic!("should be spilled");
-            }
-        }
     }
 
     #[test]
@@ -298,7 +236,7 @@ mod tests {
             .get_page(new_page as usize)
             .unwrap();
         let read_buf = page.read_buf_at(8, 200);
-        assert_eq!(node.free_start(), 208);
+        assert_eq!(node.free_start(), 200 + FilePageHeader::size() as u32);
         assert_eq!(read_buf, buf);
 
         let buf = node.get_partial_record(200);

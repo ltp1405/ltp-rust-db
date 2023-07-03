@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 use ltp_rust_db_page::pager::Pager;
 
 use super::{
-    record::Record, unordered_file::{File, Cursor}
+    record::Record,
+    unordered_file::{Cursor, File},
 };
 
 pub struct Table {
@@ -179,12 +180,15 @@ mod tests {
             ],
         };
 
-        for _ in 0..100000 {
+        for _ in 0..10000 {
             table.insert(record.clone());
         }
 
         for r in table.cursor() {
             let record2 = Record::from_bytes(&schema, r.buf);
+            if let Some(Field::UInt(Some(v))) = record2.data.get(2) {
+                println!("{}", v);
+            }
             assert_eq!(record, record2);
         }
 

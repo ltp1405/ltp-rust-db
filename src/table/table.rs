@@ -66,4 +66,35 @@ mod tests {
 
         remove_file("table_basic").unwrap();
     }
+
+    #[test]
+    fn a_lot_of_insert() {
+        let mut table = Table::init("table_a_lot_of_insert");
+
+        let schema = Schema {
+            schema: vec![DataType::Char(10), DataType::Bool, DataType::UInt, DataType::VarChar(255)],
+        };
+        let record = Record {
+            schema: schema.clone(),
+            data: vec![
+                Field::Char(Some(b"Hello".to_vec())),
+                Field::Bool(Some(true)),
+                Field::UInt(Some(42)),
+                Field::VarChar(Some(b"World".to_vec())),
+            ],
+        };
+
+        for _ in 0..10000 {
+            table.insert(record.clone());
+        }
+
+        let mut cursor = table.cursor();
+        for _ in 0..10000 {
+            let r = cursor.read();
+            let record2 = Record::from_bytes(schema.clone(), r.buf);
+            assert_eq!(record, record2);
+        }
+
+        remove_file("table_a_lot_of_insert").unwrap();
+    }
 }

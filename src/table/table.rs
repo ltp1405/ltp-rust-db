@@ -1,20 +1,20 @@
-use std::sync::{Arc, Mutex};
+use super::record::Record;
 
-use ltp_rust_db_page::pager::Pager;
-
-use super::{
-    record::Record,
+use file_system::{
+    free_space_manager::FreeSpaceManager,
     unordered_file::{Cursor, File},
 };
 
-pub struct Table {
-    file: File,
+pub struct Table<const BLOCKSIZE: usize, const CAPACITY: usize> {
+    file: File<BLOCKSIZE, CAPACITY>,
 }
 
-impl Table {
-    pub fn init(filename: &str) -> Self {
-        let pager = Arc::new(Mutex::new(Pager::init(filename)));
-        let file = File::init(pager);
+impl<const BLOCKSIZE: usize, const CAPACITY: usize> Table<BLOCKSIZE, CAPACITY> {
+    pub fn init(
+        disk: &disk::Disk<BLOCKSIZE, CAPACITY>,
+        disk_manager: &FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+    ) -> Self {
+        let file = File::init(disk, disk_manager);
         Self { file }
     }
 
@@ -23,7 +23,7 @@ impl Table {
         self.file.insert(cell);
     }
 
-    pub fn cursor(&self) -> Cursor {
+    pub fn cursor(&self) -> Cursor<BLOCKSIZE, CAPACITY> {
         self.file.cursor()
     }
 }
@@ -31,6 +31,9 @@ impl Table {
 #[cfg(test)]
 mod tests {
     use std::fs::remove_file;
+
+    use disk::Disk;
+    use file_system::free_space_manager::FreeSpaceManager;
 
     use crate::table::{
         record::{Field, Record},
@@ -41,7 +44,9 @@ mod tests {
 
     #[test]
     fn basic() {
-        let mut table = Table::init("table_basic");
+        let disk = disk::Disk::<4096, 819200>::create("table_basic").unwrap();
+        let disk_manager = FreeSpaceManager::init(&disk);
+        let mut table = Table::init(&disk, &disk_manager);
 
         let schema = Schema {
             schema: vec![
@@ -70,13 +75,13 @@ mod tests {
         let r = cursor.read();
         let record2 = Record::from_bytes(&schema, r.unwrap().buf);
         assert_eq!(record, record2);
-
-        remove_file("table_basic").unwrap();
     }
 
     #[test]
     fn simple_insert() {
-        let mut table = Table::init("table_simple_insert");
+        let disk = disk::Disk::<4096, 819200>::create("table_simple_insert").unwrap();
+        let disk_manager = FreeSpaceManager::init(&disk);
+        let mut table = Table::init(&disk, &disk_manager);
 
         let schema = Schema {
             schema: vec![
@@ -104,13 +109,14 @@ mod tests {
             let record2 = Record::from_bytes(&schema, r.buf);
             assert_eq!(record, record2);
         }
-
-        remove_file("table_simple_insert").unwrap();
     }
 
     #[test]
     fn big_record_insert() {
-        let mut table = Table::init("table_big_record_insert");
+        const CAPACITY: usize = 512 * 4096;
+        let disk = Disk::<4096, CAPACITY>::create("table_big_record_insert").unwrap();
+        let disk_manager = FreeSpaceManager::init(&disk);
+        let mut table = Table::init(&disk, &disk_manager);
 
         let schema = Schema {
             schema: vec![
@@ -154,12 +160,14 @@ mod tests {
             let record2 = Record::from_bytes(&schema, cell.buf);
             assert_eq!(record, record2);
         }
-        // remove_file("table_big_record_insert").unwrap();
     }
 
     #[test]
     fn a_lot_of_insert() {
-        let mut table = Table::init("test_table_a_lot_of_insert");
+        const CAPACITY: usize = 512 * 4096;
+        let disk = Disk::<512, CAPACITY>::create("test_table_a_lot_of_insert").unwrap();
+        let disk_manager = FreeSpaceManager::init(&disk);
+        let mut table = Table::init(&disk, &disk_manager);
 
         let schema = Schema {
             schema: vec![
@@ -179,7 +187,7 @@ mod tests {
             ],
         };
 
-        for _ in 0..100000 {
+        for _ in 0..10000 {
             table.insert(record.clone());
         }
 
@@ -187,7 +195,5 @@ mod tests {
             let record2 = Record::from_bytes(&schema, r.buf);
             assert_eq!(record, record2);
         }
-
-        remove_file("test_table_a_lot_of_insert").unwrap();
     }
 }

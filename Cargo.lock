@@ -41,6 +41,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "file-system"
+version = "0.1.0"
+dependencies = [
+ "disk",
+]
+
+[[package]]
 name = "futures"
 version = "0.3.28"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -181,6 +188,7 @@ name = "my_database"
 version = "0.1.0"
 dependencies = [
  "disk",
+ "file-system",
  "lazy_static",
  "log",
  "ltp-rust-db-page",

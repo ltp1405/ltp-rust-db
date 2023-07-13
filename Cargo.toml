@@ -9,6 +9,7 @@ edition = "2021"
 lazy_static = "1.4.0"
 ltp-rust-db-page = { path = "./ltp-rust-db-page/", version = "0.1.0"}
 disk = { path = "./disk/", version = "0.1.0"}
+file-system = { path = "./file-system/", version = "0.1.0"}
 memory = { path = "./memory/", version = "0.1.0"}
 log = "0.4.19"
 

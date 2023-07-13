@@ -36,7 +36,12 @@ impl Pager {
         file.seek(std::io::SeekFrom::Start(0)).unwrap();
         let page_table = PageTable::init();
         pages.resize_with(TABLE_MAX_PAGES, || None);
-        Self { file, frames_num:  pages: (), page_table: () }
+        Self {
+            file,
+            frames_num: 0,
+            pages,
+            page_table,
+        }
     }
 
     pub fn get_free_page(&mut self) -> Option<usize> {

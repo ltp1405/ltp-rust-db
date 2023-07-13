@@ -1,9 +1,8 @@
 use std::mem::size_of;
 
-use super::{
-    cell::Cell,
-    schema::{DataType, Schema},
-};
+use file_system::unordered_file::Cell;
+
+use super::schema::{DataType, Schema};
 
 #[derive(Debug, PartialEq, Clone)]
 #[non_exhaustive]

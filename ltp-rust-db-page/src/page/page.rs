@@ -4,14 +4,12 @@ use std::{
     sync::{Arc, RwLock},
 };
 
-use super::PAGE_SIZE;
-
 #[derive(Debug, Clone)]
-pub struct Page {
+pub struct Page<const PAGE_SIZE: usize> {
     buffer: Arc<RwLock<Box<[u8; PAGE_SIZE]>>>,
 }
 
-impl Page {
+impl<const PAGE_SIZE: usize> Page<PAGE_SIZE> {
     pub fn init() -> Self {
         let buf = Box::new([0; PAGE_SIZE]);
         Self {

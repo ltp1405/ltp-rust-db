@@ -73,7 +73,7 @@ mod tests {
 
         let mut cursor = table.cursor();
         let r = cursor.read();
-        let record2 = Record::from_bytes(&schema, r.unwrap().buf);
+        let record2 = Record::from_bytes(&schema, r.unwrap().to_bytes());
         assert_eq!(record, record2);
     }
 
@@ -106,7 +106,7 @@ mod tests {
         }
 
         for r in table.cursor() {
-            let record2 = Record::from_bytes(&schema, r.buf);
+            let record2 = Record::from_bytes(&schema, r.to_bytes());
             assert_eq!(record, record2);
         }
     }
@@ -157,7 +157,7 @@ mod tests {
         }
 
         for cell in table.cursor() {
-            let record2 = Record::from_bytes(&schema, cell.buf);
+            let record2 = Record::from_bytes(&schema, cell.to_bytes());
             assert_eq!(record, record2);
         }
     }
@@ -192,7 +192,7 @@ mod tests {
         }
 
         for r in table.cursor() {
-            let record2 = Record::from_bytes(&schema, r.buf);
+            let record2 = Record::from_bytes(&schema, r.to_bytes());
             assert_eq!(record, record2);
         }
     }

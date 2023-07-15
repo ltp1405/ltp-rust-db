@@ -56,11 +56,11 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> FilesTable<BLOCKSIZE, CAPACI
         let buf = name.as_bytes().to_vec();
         let cursor = self.file.cursor();
         for cell in cursor {
-            if cell.size() - size_of::<u32>() * 2 == buf.len() {
-                let cell_buf = &cell.buf[0..buf.len()];
+            if cell.payload_len() - size_of::<u32>() == buf.len() {
+                let cell_buf = &cell[0..buf.len()];
                 if cell_buf == &buf {
                     let mut block_number = [0; 4];
-                    block_number.copy_from_slice(&cell.buf[buf.len()..]);
+                    block_number.copy_from_slice(&cell[buf.len()..]);
                     return Some(u32::from_be_bytes(block_number));
                 }
             }
@@ -77,8 +77,8 @@ mod tests {
 
     #[test]
     fn test_files_table() {
-        let mut disk = Disk::<512, 4096>::create("test_files_table").unwrap();
-        let mut disk_manager = FreeSpaceManager::<512, 4096>::init(&disk);
+        let disk = Disk::<512, 4096>::create("test_files_table").unwrap();
+        let disk_manager = FreeSpaceManager::<512, 4096>::init(&disk);
         let mut files_table = FilesTable::<512, 4096>::init(&disk, &disk_manager);
         files_table.add_file("test", 1);
         files_table.add_file("test2", 2);

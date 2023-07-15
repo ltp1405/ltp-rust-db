@@ -13,6 +13,7 @@ pub struct FileSystem<const BLOCKSIZE: usize, const CAPACITY: usize> {
     disk_manager: FreeSpaceManager<BLOCKSIZE, CAPACITY>,
 }
 
+#[derive(Debug)]
 pub enum FileSystemError {
     FileNotFound,
     DiskFull,

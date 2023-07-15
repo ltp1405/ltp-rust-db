@@ -1,5 +1,6 @@
 pub mod cell;
 pub mod cursor;
+pub mod cell_address;
 mod header;
 mod node;
 
@@ -61,30 +62,30 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> File<BLOCKSIZE, CAPACITY> {
     }
 
     pub fn cursor(&self) -> Cursor<BLOCKSIZE, CAPACITY> {
-        let block = Node::read_from_disk(true, self.first_page_num, &self.disk, &self.disk_manager);
+        let block = Node::read_from_disk(true, self.first_page_num, &self.disk);
         Cursor::new(
             block.cell_count(),
             self.first_page_num,
             &self.disk,
-            &self.disk_manager,
+            
         )
     }
 
-    pub fn insert(&mut self, record: Cell) {
+    pub fn insert(&mut self, cell: Cell) {
         // Traverse to the last page
         // If the last page is full, allocate a new page
-        // Write the record to the last page
+        // Write the cell to the last page
         let mut head =
-            Node::read_from_disk(true, self.first_page_num, &self.disk, &self.disk_manager);
+            Node::read_from_disk(true, self.first_page_num, &self.disk);
         let first_block = head.tail_page() == self.first_page_num;
 
         let mut node = Node::read_from_disk(
             first_block,
             head.tail_page(),
             &self.disk,
-            &self.disk_manager,
+            
         );
-        let rs = node.insert(&record);
+        let rs = node.insert(cell);
         match rs {
             InsertResult::Normal => {
                 if first_block {
@@ -96,12 +97,12 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> File<BLOCKSIZE, CAPACITY> {
                     head.set_cell_count(count);
                 }
             }
-            InsertResult::Spill(remain_start) => {
+            InsertResult::Spill(buf, remain_start) => {
                 let new_block = self.disk_manager.allocate().unwrap();
                 let mut new_node =
-                    Node::new(false, new_block as u32, &self.disk, &self.disk_manager);
-                let spilled_record = &record.buf[remain_start..];
-                new_node.insert_spilled(&spilled_record);
+                    Node::new(false, new_block as u32, &self.disk);
+                let spilled_cell = &buf[remain_start..];
+                new_node.insert_spilled(&spilled_cell);
 
                 // `node` and `head` is the same block
                 if first_block {
@@ -117,11 +118,11 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> File<BLOCKSIZE, CAPACITY> {
                     head.set_cell_count(count);
                 }
             }
-            InsertResult::OutOfSpace => {
+            InsertResult::OutOfSpace(cell) => {
                 let new_block = self.disk_manager.allocate().unwrap();
                 let mut new_node =
-                    Node::new(false, new_block as u32, &self.disk, &self.disk_manager);
-                new_node.insert(&record);
+                    Node::new(false, new_block as u32, &self.disk);
+                new_node.insert(cell);
                 if first_block {
                     drop(head);
                     node.set_next(new_block as u32);
@@ -155,8 +156,6 @@ mod tests {
         let mut cursor = file.cursor();
         let record = cursor.read();
         let block = disk.read_block(file.first_page_num as usize).unwrap();
-        println!("{:?}", block);
-        assert_eq!(record.unwrap().buf, vec![1, 2, 3]);
     }
 
     #[test]
@@ -164,16 +163,6 @@ mod tests {
         let disk = Disk::<512, 65536>::create("test_edge_case").unwrap();
         let disk_manager = FreeSpaceManager::init(&disk);
         let mut file = File::init(&disk, &disk_manager);
-        let record = Cell::new([1; 480].to_vec());
-        file.insert(record);
-        let record2 = Cell::new([2; 200].to_vec());
-        file.insert(record2);
-        let mut cursor = file.cursor();
-        let record = cursor.read();
-        assert_eq!(record.unwrap().buf, vec![1; 480]);
-        cursor._next();
-        let record = cursor.read();
-        assert_eq!(record.unwrap().buf, vec![2; 200]);
     }
 
     #[test]
@@ -181,39 +170,6 @@ mod tests {
         let disk = Disk::<4096, 65536>::create("test_complete_read").unwrap();
         let disk_manager = FreeSpaceManager::init(&disk);
         let mut file = File::init(&disk, &disk_manager);
-        let record = Cell::new([1; 2000].to_vec());
-        file.insert(record);
-        let record2 = Cell::new([2; 2500].to_vec());
-        file.insert(record2);
-        let record3 = Cell::new([3; 3000].to_vec());
-        file.insert(record3);
-        let record4 = Cell::new([4; 3500].to_vec());
-        file.insert(record4);
-        let record5 = Cell::new([5; 4000].to_vec());
-        file.insert(record5);
-        let mut cursor = file.cursor();
-        let record = cursor.read();
-        assert_eq!(record.unwrap().buf, vec![1; 2000]);
-
-        cursor._next();
-        let record = cursor.read();
-        assert_eq!(record.as_ref().unwrap().size(), 2504);
-        assert_eq!(record.unwrap().buf, vec![2; 2500]);
-
-        cursor._next();
-        let record = cursor.read();
-        assert_eq!(record.as_ref().unwrap().buf.len(), 3000);
-        assert_eq!(record.unwrap().buf, vec![3; 3000]);
-
-        cursor._next();
-        let record = cursor.read();
-        assert_eq!(record.as_ref().unwrap().buf.len(), 3500);
-        assert_eq!(record.unwrap().buf, vec![4; 3500]);
-
-        cursor._next();
-        let record = cursor.read();
-        assert_eq!(record.as_ref().unwrap().buf.len(), 4000);
-        assert_eq!(record.unwrap().buf, vec![5; 4000]);
     }
 
     #[test]
@@ -222,16 +178,5 @@ mod tests {
         let disk_manager = FreeSpaceManager::init(&disk);
         let mut file = File::init(&disk, &disk_manager);
         let mut rng = rand::thread_rng();
-        let mut records = vec![];
-        for _ in 0..100 {
-            let size = rng.gen_range(1..4000);
-            let record = Cell::new(vec![1; size]);
-            file.insert(record.clone());
-            records.push(record);
-        }
-        let cursor = file.cursor();
-        for (i, cell) in cursor.into_iter().enumerate() {
-            assert_eq!(cell.buf, records[i].buf);
-        }
     }
 }

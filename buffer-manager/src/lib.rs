@@ -1,3 +1,5 @@
+mod page_table;
+
 use disk::Disk;
 use memory::{MemoryError, PhysicalMemory};
 
@@ -13,6 +15,16 @@ struct BufferManager<
 impl<const BLOCK_SIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACITY: usize>
     BufferManager<BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY>
 {
+    pub fn new(
+        disk: &Disk<BLOCK_SIZE, DISK_CAPACITY>,
+        memory: &PhysicalMemory<MEMORY_CAPACITY>,
+    ) -> Self {
+        BufferManager {
+            memory: memory.clone(),
+            disk: disk.clone(),
+        }
+    }
+
     pub fn get_page(&mut self, page_id: usize) -> Result<&mut [u8], MemoryError> {
         todo!()
     }

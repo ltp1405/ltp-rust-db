@@ -10,8 +10,10 @@ pub enum MemoryError {
     OverCapacity,
 }
 
+#[derive(Clone)]
 pub struct PhysicalMemory<const CAPACITY: usize> {
     file: Arc<Mutex<File>>,
+    buffer: Arc<Mutex<[u8; CAPACITY]>>,
 }
 
 pub fn make_name(name: &str) -> String {
@@ -61,7 +63,10 @@ impl<const CAPACITY: usize> PhysicalMemory<CAPACITY> {
         file.set_len(CAPACITY as u64)?;
         write_header(&mut file, CAPACITY as u32)?;
         let file = Arc::new(Mutex::new(file));
-        Ok(Self { file })
+        Ok(Self {
+            file,
+            buffer: Arc::new(Mutex::new([0; CAPACITY])),
+        })
     }
 
     pub fn connect(name: &str) -> Result<Self, std::io::Error> {
@@ -78,28 +83,36 @@ impl<const CAPACITY: usize> PhysicalMemory<CAPACITY> {
         let capacity = read_header(&mut file)?;
         assert_eq!(CAPACITY, capacity as usize, "Incorrect disk capacity");
         let file = Arc::new(Mutex::new(file));
-        Ok(Self { file })
+        Ok(Self {
+            file,
+            buffer: Arc::new(Mutex::new([0; CAPACITY])),
+        })
     }
 
-    pub fn read(&mut self, address: u64) -> Result<u8, MemoryError> {
+    pub fn read(&self, address: u64) -> Result<u8, MemoryError> {
         if address as usize >= CAPACITY {
             return Err(MemoryError::OverCapacity);
         }
-        let mut file = self.file.lock().unwrap();
-        file.seek(SeekFrom::Start(8 + address)).unwrap();
-        let mut buf: [u8; 1] = [0; 1];
-        file.read(&mut buf).unwrap();
-        Ok(buf[0])
+        let buffer = self.buffer.lock().unwrap();
+        Ok(buffer[address as usize])
     }
 
-    pub fn write(&mut self, address: u64, byte: u8) -> Result<(), MemoryError> {
+    pub fn write(&self, address: u64, byte: u8) -> Result<(), MemoryError> {
         if address as usize >= CAPACITY {
             return Err(MemoryError::OverCapacity);
         }
-        let mut file = self.file.lock().unwrap();
-        file.seek(SeekFrom::Start(8 + address)).unwrap();
-        file.write(&[byte]).unwrap();
+        let mut buffer = self.buffer.lock().unwrap();
+        buffer[address as usize] = byte;
         Ok(())
+    }
+}
+
+impl<const CAPACITY: usize> Drop for PhysicalMemory<CAPACITY> {
+    fn drop(&mut self) {
+        let mut file = self.file.lock().unwrap();
+        file.seek(SeekFrom::Start(size_of::<u32>() as u64)).unwrap();
+        let buffer = self.buffer.lock().unwrap();
+        file.write(buffer.as_slice()).unwrap();
     }
 }
 
@@ -129,7 +142,7 @@ mod tests {
     fn test_read_write() {
         let name = "test_read_write";
         let _ = remove_file(make_name(name));
-        let mut mem = PhysicalMemory::<1024>::create(name).unwrap();
+        let mem = PhysicalMemory::<1024>::create(name).unwrap();
         mem.write(0, 0x12).unwrap();
         assert_eq!(mem.read(0).unwrap(), 0x12);
         let _ = remove_file(make_name(name));
@@ -139,7 +152,7 @@ mod tests {
     fn test_write_a_lot_of_data() {
         let name = "test_write_a_lot_of_data";
         let _ = remove_file(make_name(name));
-        let mut mem = PhysicalMemory::<1024>::create(name).unwrap();
+        let mem = PhysicalMemory::<1024>::create(name).unwrap();
         for i in 0..1024 {
             mem.write(i, i as u8).unwrap();
         }

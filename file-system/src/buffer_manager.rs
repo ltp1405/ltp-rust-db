@@ -1,14 +1,11 @@
-mod page_table;
-
 use disk::Disk;
 use memory::{MemoryError, PhysicalMemory};
 
-/// This struct is responsible for managing the memory and disk.
-/// It is responsible for loading and unloading pages from the disk to the memory.
-/// It is also responsible for writing pages from the memory to the disk.
-/// It is also responsible for keeping track of the pages in memory and the pages in disk.
-/// [ ] Read page from disk to memory
-/// [ ] Write page from memory to disk
+// Algorithm for writing page from memory to disk:
+// - Check if it is dirty
+// - If it is dirty, write it to disk
+// - If it is not dirty, do nothing
+
 struct BufferManager<
     const BLOCK_SIZE: usize,
     const DISK_CAPACITY: usize,

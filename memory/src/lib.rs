@@ -89,20 +89,55 @@ impl<const CAPACITY: usize> PhysicalMemory<CAPACITY> {
         })
     }
 
-    pub fn read(&self, address: u64) -> Result<u8, MemoryError> {
+    pub fn check_address(&self, address: u64) -> Result<(), MemoryError> {
         if address as usize >= CAPACITY {
             return Err(MemoryError::OverCapacity);
         }
+        Ok(())
+    }
+
+    pub fn read_u8(&self, address: u64) -> Result<u8, MemoryError> {
+        self.check_address(address)?;
         let buffer = self.buffer.lock().unwrap();
         Ok(buffer[address as usize])
     }
 
-    pub fn write(&self, address: u64, byte: u8) -> Result<(), MemoryError> {
-        if address as usize >= CAPACITY {
-            return Err(MemoryError::OverCapacity);
-        }
+    pub fn write_u8(&self, address: u64, byte: u8) -> Result<(), MemoryError> {
+        self.check_address(address)?;
         let mut buffer = self.buffer.lock().unwrap();
         buffer[address as usize] = byte;
+        Ok(())
+    }
+
+    pub fn read_u16(&self, address: u64) -> Result<u16, MemoryError> {
+        self.check_address(address)?;
+        let buffer = self.buffer.lock().unwrap();
+        let mut bytes = [0; size_of::<u16>()];
+        bytes.copy_from_slice(&buffer[address as usize..(address + 2) as usize]);
+        Ok(u16::from_be_bytes(bytes))
+    }
+
+    pub fn write_u16(&self, address: u64, word: u16) -> Result<(), MemoryError> {
+        self.check_address(address)?;
+        let mut buffer = self.buffer.lock().unwrap();
+        let bytes = word.to_be_bytes();
+        buffer[address as usize..(address + 2) as usize].copy_from_slice(&bytes);
+        Ok(())
+    }
+
+    pub fn read_u32(&self, address: u64) -> Result<u32, MemoryError> {
+        self.check_address(address)?;
+        let buffer = self.buffer.lock().unwrap();
+        let mut bytes = [0; size_of::<u32>()];
+        bytes.copy_from_slice(&buffer[address as usize..(address + 4) as usize]);
+        Ok(u32::from_be_bytes(bytes))
+    }
+
+    pub fn write_u32(&self, address: u64, word: u32) -> Result<(), MemoryError> {
+        self.check_address(address)?;
+        let mut buffer = self.buffer.lock().unwrap();
+        let bytes = word.to_be_bytes();
+        buffer[address as usize..(address + 4) as usize].copy_from_slice(&bytes);
         Ok(())
     }
 }
@@ -143,8 +178,8 @@ mod tests {
         let name = "test_read_write";
         let _ = remove_file(make_name(name));
         let mem = PhysicalMemory::<1024>::create(name).unwrap();
-        mem.write(0, 0x12).unwrap();
-        assert_eq!(mem.read(0).unwrap(), 0x12);
+        mem.write_u8(0, 0x12).unwrap();
+        assert_eq!(mem.read_u8(0).unwrap(), 0x12);
         let _ = remove_file(make_name(name));
     }
 
@@ -154,10 +189,10 @@ mod tests {
         let _ = remove_file(make_name(name));
         let mem = PhysicalMemory::<1024>::create(name).unwrap();
         for i in 0..1024 {
-            mem.write(i, i as u8).unwrap();
+            mem.write_u8(i, i as u8).unwrap();
         }
         for i in 0..1024 {
-            assert_eq!(mem.read(i).unwrap(), i as u8);
+            assert_eq!(mem.read_u8(i).unwrap(), i as u8);
         }
         let _ = remove_file(make_name(name));
     }
@@ -166,8 +201,8 @@ mod tests {
     fn test_write_invalid_address() {
         let name = "test_write_invalid_address";
         let _ = remove_file(make_name(name));
-        let mut mem = PhysicalMemory::<1024>::create(name).unwrap();
-        assert!(mem.write(1024, 0x12).is_err());
+        let mem = PhysicalMemory::<1024>::create(name).unwrap();
+        assert!(mem.write_u8(1024, 0x12).is_err());
         let _ = remove_file(make_name(name));
     }
 }

@@ -53,6 +53,8 @@ impl FileHeader {
 #[derive(Debug)]
 pub struct FilePageHeader {
     pub free_space_start: u32,
+    /// Use to swizzle the address 
+    pub address_type: u8,
     pub next: u32,
 }
 

@@ -1,6 +1,5 @@
 pub mod cell;
 pub mod cursor;
-pub mod cell_address;
 mod header;
 mod node;
 

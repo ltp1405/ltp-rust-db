@@ -7,6 +7,8 @@ use self::bitmap::{read_bitmap_from_disk, write_bitmap_to_disk, Bitmap};
 
 pub type DiskAddress = u32;
 
+/// This struct is responsible for managing the free space on the disk.
+/// It is implemented as a bitmap, where each bit represents a block on the disk.
 #[derive(Debug, Clone)]
 pub struct FreeSpaceManager<const BLOCKSIZE: usize, const CAPACITY: usize> {
     bitmap: Arc<Mutex<Bitmap<BLOCKSIZE, CAPACITY>>>,

@@ -4,6 +4,7 @@ use free_space_manager::{bitmap::Bitmap, FreeSpaceManager};
 use unordered_file::File;
 
 mod files_table;
+mod buffer_manager;
 pub mod free_space_manager;
 pub mod unordered_file;
 

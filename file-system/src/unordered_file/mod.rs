@@ -15,9 +15,8 @@ use node::{InsertResult, Node};
 /// A `File` which only contain records from one `Table`
 /// Implemented as a linked list of page
 pub struct File<const BLOCKSIZE: usize, const CAPACITY: usize> {
-    disk: Disk<BLOCKSIZE, CAPACITY>,
-    disk_manager: FreeSpaceManager<BLOCKSIZE, CAPACITY>,
-    pub first_page_num: u32,
+    memory: memory::PhysicalMemory<CAPACITY>,
+    address: usize,
 }
 
 impl<const BLOCKSIZE: usize, const CAPACITY: usize> File<BLOCKSIZE, CAPACITY> {

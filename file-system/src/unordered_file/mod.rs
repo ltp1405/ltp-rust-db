@@ -5,7 +5,7 @@ mod node;
 
 use disk::Disk;
 
-use crate::free_space_manager::FreeSpaceManager;
+use crate::{buffer_manager::BufferManager, free_space_manager::FreeSpaceManager};
 
 pub use cell::Cell;
 pub use cursor::Cursor;
@@ -14,36 +14,35 @@ use node::{InsertResult, Node};
 
 /// A `File` which only contain records from one `Table`
 /// Implemented as a linked list of page
-pub struct File<const BLOCKSIZE: usize, const CAPACITY: usize> {
-    memory: memory::PhysicalMemory<CAPACITY>,
-    address: usize,
+pub struct File<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize> {
+    buffer_manager: BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
+    head_page_number: u32,
 }
 
-impl<const BLOCKSIZE: usize, const CAPACITY: usize> File<BLOCKSIZE, CAPACITY> {
+impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize>
+    File<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>
+{
     pub fn init(
-        disk: &Disk<BLOCKSIZE, CAPACITY>,
         disk_manager: &FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+        buffer_manager: BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
     ) -> Self {
-        let new_block = disk_manager.allocate().unwrap();
-        let mut block: [u8; BLOCKSIZE] = [0; BLOCKSIZE];
+        let new_page_number = disk_manager.allocate().unwrap();
+        let new_page = buffer_manager.get_page(new_page_number);
         let file_header = FileHeader {
             cell_count: 0,
-            tail_page_num: new_block as u32,
-            head_page_num: new_block as u32,
+            tail_page_num: new_page_number as u32,
+            head_page_num: new_page_number as u32,
         };
-        file_header.write_to(block.as_mut_slice());
+        file_header.write_to(new_page.buffer_mut());
 
         let page_header = FilePageHeader {
             free_space_start: (FilePageHeader::size() + FileHeader::size()) as u32,
             next: 0,
         };
-        page_header.write_to(true, block.as_mut_slice());
-        disk.write_block(new_block as usize, block.as_ref())
-            .unwrap();
+        page_header.write_to(true, new_page.buffer_mut());
         File {
-            disk: disk.clone(),
-            disk_manager: disk_manager.clone(),
-            first_page_num: new_block,
+            buffer_manager,
+            head_page_number: new_page_number,
         }
     }
 
@@ -61,28 +60,17 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> File<BLOCKSIZE, CAPACITY> {
 
     pub fn cursor(&self) -> Cursor<BLOCKSIZE, CAPACITY> {
         let block = Node::read_from_disk(true, self.first_page_num, &self.disk);
-        Cursor::new(
-            block.cell_count(),
-            self.first_page_num,
-            &self.disk,
-            
-        )
+        Cursor::new(block.cell_count(), self.first_page_num, &self.disk)
     }
 
     pub fn insert(&mut self, cell: Cell) {
         // Traverse to the last page
         // If the last page is full, allocate a new page
         // Write the cell to the last page
-        let mut head =
-            Node::read_from_disk(true, self.first_page_num, &self.disk);
+        let mut head = Node::read_from_disk(true, self.first_page_num, &self.disk);
         let first_block = head.tail_page() == self.first_page_num;
 
-        let mut node = Node::read_from_disk(
-            first_block,
-            head.tail_page(),
-            &self.disk,
-            
-        );
+        let mut node = Node::read_from_disk(first_block, head.tail_page(), &self.disk);
         let rs = node.insert(cell);
         match rs {
             InsertResult::Normal => {
@@ -97,8 +85,7 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> File<BLOCKSIZE, CAPACITY> {
             }
             InsertResult::Spill(buf, remain_start) => {
                 let new_block = self.disk_manager.allocate().unwrap();
-                let mut new_node =
-                    Node::new(false, new_block as u32, &self.disk);
+                let mut new_node = Node::new(false, new_block as u32, &self.disk);
                 let spilled_cell = &buf[remain_start..];
                 new_node.insert_spilled(&spilled_cell);
 
@@ -118,8 +105,7 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> File<BLOCKSIZE, CAPACITY> {
             }
             InsertResult::OutOfSpace(cell) => {
                 let new_block = self.disk_manager.allocate().unwrap();
-                let mut new_node =
-                    Node::new(false, new_block as u32, &self.disk);
+                let mut new_node = Node::new(false, new_block as u32, &self.disk);
                 new_node.insert(cell);
                 if first_block {
                     drop(head);

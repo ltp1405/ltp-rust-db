@@ -5,8 +5,8 @@
 
 // mod files_table;
 mod buffer_manager;
-// pub mod free_space_manager;
-// pub mod unordered_file;
+pub mod free_space_manager;
+pub mod unordered_file;
 
 // pub struct FileSystem<const BLOCKSIZE: usize, const CAPACITY: usize> {
 //     files_table: FilesTable<BLOCKSIZE, CAPACITY>,

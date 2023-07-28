@@ -89,7 +89,7 @@ impl<const CAPACITY: usize> PhysicalMemory<CAPACITY> {
         })
     }
 
-    pub fn check_address(&self, address: u64) -> Result<(), MemoryError> {
+    fn check_address(&self, address: u64) -> Result<(), MemoryError> {
         if address as usize >= CAPACITY {
             return Err(MemoryError::OverCapacity);
         }

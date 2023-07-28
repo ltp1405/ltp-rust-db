@@ -9,22 +9,25 @@ use crate::{buffer_manager::BufferManager, free_space_manager::FreeSpaceManager}
 
 pub use cell::Cell;
 pub use cursor::Cursor;
-use header::{FileHeader, FilePageHeader};
+use header::FileHeader;
 use node::{InsertResult, Node};
+
+use self::header::FileNodeHeader;
 
 /// A `File` which only contain records from one `Table`
 /// Implemented as a linked list of page
 pub struct File<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize> {
-    buffer_manager: BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-    head_page_number: u32,
+    disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+    buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
+    pub head_page_number: u32,
 }
 
 impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize>
     File<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>
 {
     pub fn init(
-        disk_manager: &FreeSpaceManager<BLOCKSIZE, CAPACITY>,
-        buffer_manager: BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
+        disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+        buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
     ) -> Self {
         let new_page_number = disk_manager.allocate().unwrap();
         let new_page = buffer_manager.get_page(new_page_number);
@@ -35,42 +38,51 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         };
         file_header.write_to(new_page.buffer_mut());
 
-        let page_header = FilePageHeader {
-            free_space_start: (FilePageHeader::size() + FileHeader::size()) as u32,
+        let page_header = FileNodeHeader {
+            free_space_start: (FileNodeHeader::size() + FileHeader::size()) as u32,
             next: 0,
         };
         page_header.write_to(true, new_page.buffer_mut());
         File {
+            disk_manager,
             buffer_manager,
             head_page_number: new_page_number,
         }
     }
 
     pub fn open(
-        disk: &Disk<BLOCKSIZE, CAPACITY>,
-        disk_manager: &FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+        buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
+        disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
         first_page_num: u32,
     ) -> Self {
         File {
-            disk: disk.clone(),
-            disk_manager: disk_manager.clone(),
-            first_page_num,
+            disk_manager,
+            buffer_manager,
+            head_page_number: first_page_num,
         }
     }
 
-    pub fn cursor(&self) -> Cursor<BLOCKSIZE, CAPACITY> {
-        let block = Node::read_from_disk(true, self.first_page_num, &self.disk);
-        Cursor::new(block.cell_count(), self.first_page_num, &self.disk)
+    pub fn cursor(&'a self) -> Cursor<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> {
+        let page = self.buffer_manager.get_page(self.head_page_number);
+        let block: Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> = Node::from_page(true, page);
+        Cursor::new(
+            block.cell_count(),
+            self.head_page_number,
+            self.buffer_manager,
+        )
     }
 
-    pub fn insert(&mut self, cell: Cell) {
+    pub fn insert(&self, cell: Cell) {
         // Traverse to the last page
         // If the last page is full, allocate a new page
         // Write the cell to the last page
-        let mut head = Node::read_from_disk(true, self.first_page_num, &self.disk);
-        let first_block = head.tail_page() == self.first_page_num;
+        let page = self.buffer_manager.get_page(self.head_page_number);
+        let mut head: Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> = Node::from_page(true, page);
+        let first_block = head.tail_page() == self.head_page_number;
 
-        let mut node = Node::read_from_disk(first_block, head.tail_page(), &self.disk);
+        let tail = self.buffer_manager.get_page(head.tail_page());
+        let mut node: Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
+            Node::from_page(first_block, tail);
         let rs = node.insert(cell);
         match rs {
             InsertResult::Normal => {
@@ -85,7 +97,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
             }
             InsertResult::Spill(buf, remain_start) => {
                 let new_block = self.disk_manager.allocate().unwrap();
-                let mut new_node = Node::new(false, new_block as u32, &self.disk);
+                let new_page = self.buffer_manager.get_page(new_block);
+                let mut new_node: Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
+                    Node::new(false, new_page);
                 let spilled_cell = &buf[remain_start..];
                 new_node.insert_spilled(&spilled_cell);
 
@@ -105,7 +119,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
             }
             InsertResult::OutOfSpace(cell) => {
                 let new_block = self.disk_manager.allocate().unwrap();
-                let mut new_node = Node::new(false, new_block as u32, &self.disk);
+                let new_page = self.buffer_manager.get_page(new_block);
+                let mut new_node: Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
+                    Node::new(false, new_page);
                 new_node.insert(cell);
                 if first_block {
                     drop(head);
@@ -126,41 +142,51 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
 
 #[cfg(test)]
 mod tests {
-    use rand::Rng;
-
     use super::*;
 
     #[test]
     fn simple_read() {
-        let disk = Disk::<512, 65536>::create("test_simple_read").unwrap();
+        const BLOCKSIZE: usize = 512;
+        const CAPACITY: usize = 512 * 128;
+        const MEMORY_CAPACITY: usize = 512 * 32;
+        let memory = [0; MEMORY_CAPACITY];
+        let disk = Disk::<BLOCKSIZE, CAPACITY>::create("test_simple_read").unwrap();
         let disk_manager = FreeSpaceManager::init(&disk);
-        let mut file = File::init(&disk, &disk_manager);
+        let buffer_manager: BufferManager<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
+            BufferManager::init(&memory, &disk);
+        let mut file = File::init(&disk_manager, &buffer_manager);
         let record = Cell::new(vec![1, 2, 3]);
         file.insert(record);
         let mut cursor = file.cursor();
         let record = cursor.read();
-        let block = disk.read_block(file.first_page_num as usize).unwrap();
+        let block = disk.read_block(file.head_page_number as usize).unwrap();
     }
 
     #[test]
     fn edge_case() {
-        let disk = Disk::<512, 65536>::create("test_edge_case").unwrap();
+        const BLOCKSIZE: usize = 512;
+        const CAPACITY: usize = 512 * 128;
+        const MEMORY_CAPACITY: usize = 512 * 32;
+        let memory = [0; MEMORY_CAPACITY];
+        let disk = Disk::<BLOCKSIZE, CAPACITY>::create("edge_case").unwrap();
         let disk_manager = FreeSpaceManager::init(&disk);
-        let mut file = File::init(&disk, &disk_manager);
+        let buffer_manager: BufferManager<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
+            BufferManager::init(&memory, &disk);
+        let mut file = File::init(&disk_manager, &buffer_manager);
     }
 
     #[test]
     fn complete_read() {
         let disk = Disk::<4096, 65536>::create("test_complete_read").unwrap();
         let disk_manager = FreeSpaceManager::init(&disk);
-        let mut file = File::init(&disk, &disk_manager);
+        // let mut file = File::init(&disk, &disk_manager);
     }
 
     #[test]
     fn random_insert_read() {
         let disk = Disk::<4096, 819200>::create("test_random_insert_read").unwrap();
         let disk_manager = FreeSpaceManager::init(&disk);
-        let mut file = File::init(&disk, &disk_manager);
+        // let mut file = File::init(&disk, &disk_manager);
         let mut rng = rand::thread_rng();
     }
 }

@@ -4,7 +4,11 @@ use std::sync::{Arc, Mutex};
 
 use disk::Disk;
 
-use self::page::{FrameAllocator, PageTable};
+use self::page::FrameAllocator;
+
+pub use page::Page;
+pub use page::PageTable;
+
 
 pub struct BufferManager<
     'a,

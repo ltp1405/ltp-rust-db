@@ -51,12 +51,12 @@ impl FileHeader {
 }
 
 #[derive(Debug)]
-pub struct FilePageHeader {
+pub struct FileNodeHeader {
     pub free_space_start: u32,
     pub next: u32,
 }
 
-impl FilePageHeader {
+impl FileNodeHeader {
     pub fn new(next: u32, free_space_start: u32) -> Self {
         Self {
             free_space_start,

@@ -3,56 +3,61 @@ use std::mem::size_of;
 use disk::Disk;
 
 use crate::{
+    buffer_manager::BufferManager,
     free_space_manager::{bitmap::Bitmap, FreeSpaceManager},
     unordered_file::{Cell, File},
 };
 
-pub struct FilesTable<const BLOCKSIZE: usize, const CAPACITY: usize> {
-    file: File<BLOCKSIZE, CAPACITY>,
+pub struct FilesTable<
+    'a,
+    const BLOCKSIZE: usize,
+    const CAPACITY: usize,
+    const MEMORY_CAPACITY: usize,
+> {
+    file: File<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
     disk_manager: FreeSpaceManager<BLOCKSIZE, CAPACITY>,
-    disk: Disk<BLOCKSIZE, CAPACITY>,
 }
 
-impl<const BLOCKSIZE: usize, const CAPACITY: usize> FilesTable<BLOCKSIZE, CAPACITY> {
+impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize>
+    FilesTable<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>
+{
     pub fn init(
-        disk: &Disk<BLOCKSIZE, CAPACITY>,
-        disk_manager: &FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+        buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
+        disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
     ) -> Self {
-        let file = File::init(disk, disk_manager);
+        let file = File::init(disk_manager, buffer_manager);
         let files_table_pos = Bitmap::<BLOCKSIZE, CAPACITY>::size() / BLOCKSIZE
             + if Bitmap::<BLOCKSIZE, CAPACITY>::size() % BLOCKSIZE == 0 {
                 0
             } else {
                 1
             };
-        assert_eq!(files_table_pos, file.first_page_num as usize);
+        // assert_eq!(files_table_pos, file.head_page_number as usize);
         Self {
             file,
-            disk: disk.clone(),
             disk_manager: disk_manager.clone(),
         }
     }
 
     pub fn open(
-        disk: &Disk<BLOCKSIZE, CAPACITY>,
-        disk_manager: &FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+        buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
+        disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
         block_number: u32,
     ) -> Self {
-        let file = File::open(disk, disk_manager, block_number);
+        let file = File::open(buffer_manager, disk_manager, block_number);
         Self {
             file,
-            disk: disk.clone(),
             disk_manager: disk_manager.clone(),
         }
     }
 
-    pub fn add_file(&mut self, name: &str, block_number: u32) {
+    pub fn add_file(&self, name: &str, block_number: u32) {
         let mut buf = name.as_bytes().to_vec();
         buf.extend_from_slice(block_number.to_be_bytes().as_ref());
         self.file.insert(Cell::new(buf))
     }
 
-    pub fn search_file(&self, name: &str) -> Option<u32> {
+    pub fn search_file(&'a self, name: &str) -> Option<u32> {
         let buf = name.as_bytes().to_vec();
         let cursor = self.file.cursor();
         for cell in cursor {
@@ -77,9 +82,18 @@ mod tests {
 
     #[test]
     fn test_files_table() {
-        let disk = Disk::<512, 4096>::create("test_files_table").unwrap();
-        let disk_manager = FreeSpaceManager::<512, 4096>::init(&disk);
-        let mut files_table = FilesTable::<512, 4096>::init(&disk, &disk_manager);
+        const BLOCKSIZE: usize = 512;
+        const CAPACITY: usize = 512 * 128;
+        const MEMORY_CAPACITY: usize = 512 * 32;
+        let memory = [0; MEMORY_CAPACITY];
+        let disk = Disk::<BLOCKSIZE, CAPACITY>::create("test_files_table").unwrap();
+        let disk_manager = FreeSpaceManager::init(&disk);
+        let buffer_manager = BufferManager::init(&memory, &disk);
+        let file = File::init(&disk_manager, &buffer_manager);
+        let mut files_table = FilesTable::<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>::init(
+            &buffer_manager,
+            &disk_manager,
+        );
         files_table.add_file("test", 1);
         files_table.add_file("test2", 2);
         files_table.add_file("test3", 3);

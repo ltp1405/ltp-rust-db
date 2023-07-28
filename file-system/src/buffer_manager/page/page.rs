@@ -1,5 +1,6 @@
 use std::{
     mem::size_of,
+    ops::{Deref, DerefMut},
     ptr::{slice_from_raw_parts, slice_from_raw_parts_mut},
 };
 
@@ -31,7 +32,9 @@ impl<'a, const PAGE_SIZE: usize> Page<'a, PAGE_SIZE> {
 
     pub fn buffer_mut(&self) -> &mut [u8] {
         let page_number = self.page_number as usize;
-        &mut self.memory[page_number * PAGE_SIZE..(page_number + 1) * PAGE_SIZE]
+        let buffer_ptr = unsafe { self.memory.as_ptr().add(page_number * PAGE_SIZE) as *mut u8 };
+        let s = slice_from_raw_parts_mut(buffer_ptr, PAGE_SIZE);
+        unsafe { s.as_mut().unwrap() }
     }
 
     pub unsafe fn read_val_at<T>(&self, pos: usize) -> T {
@@ -91,6 +94,20 @@ impl<'a, const PAGE_SIZE: usize> Page<'a, PAGE_SIZE> {
         let buffer_ptr = unsafe { self.buffer().as_ptr().add(pos) as *mut u8 };
         let s = slice_from_raw_parts_mut(buffer_ptr, buf.len());
         unsafe { s.as_mut().unwrap().copy_from_slice(buf) }
+    }
+}
+
+impl<const PAGE_SIZE: usize> Deref for Page<'_, PAGE_SIZE> {
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.buffer()
+    }
+}
+
+impl<const PAGE_SIZE: usize> DerefMut for Page<'_, PAGE_SIZE> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.buffer_mut()
     }
 }
 

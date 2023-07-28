@@ -1,11 +1,23 @@
-use file_system::{unordered_file::Cell, FileSystem};
+use disk::Disk;
+use file_system::{
+    buffer_manager::BufferManager, free_space_manager::FreeSpaceManager, unordered_file::Cell,
+    FileSystem,
+};
 
 #[test]
 fn general() {
-    const CAPACITY: usize = 512 * 400;
-    let mut file_system = FileSystem::<512, CAPACITY>::create("test.db").unwrap();
+    const BLOCKSIZE: usize = 512;
+    const CAPACITY: usize = BLOCKSIZE * 512;
+    const MEMORY_CAPACITY: usize = 512 * 32;
+
+    let memory = [0; MEMORY_CAPACITY];
+    let disk = Disk::create("test.db").unwrap();
+    let buffer_manager = BufferManager::init(&memory, &disk);
+    let disk_manager = FreeSpaceManager::init(&disk);
+    let mut file_system =
+        FileSystem::<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>::init(&buffer_manager, &disk_manager)
+            .unwrap();
     let mut file1 = file_system.create_file("file1").unwrap();
-    let mut file2 = file_system.create_file("file2").unwrap();
 
     let cells = vec![
         Cell::new([0x1; 17].to_vec()),
@@ -36,6 +48,8 @@ fn general() {
 
     let mut cells1 = Vec::new();
     let mut cells2 = Vec::new();
+
+    let mut file2 = file_system.create_file("file2").unwrap();
 
     for cell in cells.clone().into_iter().filter(|_| rand::random()) {
         cells1.push(cell.clone());

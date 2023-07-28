@@ -1,52 +1,70 @@
 use std::mem::size_of;
 
-use disk::Disk;
+use crate::buffer_manager::BufferManager;
 
 use super::{
     cell::Cell,
-    header::{FileHeader, FilePageHeader},
+    header::{FileHeader, FileNodeHeader},
     node::{Node, ReadResult},
 };
 
-#[derive(Debug)]
-pub struct Cursor<const BLOCKSIZE: usize, const CAPACITY: usize> {
-    block_number: u32,
-    offset: usize,
-    cell_count: u64,
-    at_head: bool,
-    cur_cell: u64,
-    disk: Disk<BLOCKSIZE, CAPACITY>,
+trait Animal {
+    fn make_sound(&self) -> String;
 }
 
-impl<const BLOCKSIZE: usize, const CAPACITY: usize> Iterator for Cursor<BLOCKSIZE, CAPACITY> {
-    type Item = Cell;
+trait Cat: Animal {
+    fn meow(&self) -> String {
+        "meow".to_string()
+    }
+}
 
+pub struct Cursor<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize> {
+    block_number: std::cell::Cell<u32>,
+    offset: std::cell::Cell<usize>,
+    cell_count: u64,
+    at_head: std::cell::Cell<bool>,
+    cur_cell: std::cell::Cell<u64>,
+    buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
+}
+
+impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize> Iterator
+    for Cursor<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>
+{
+    type Item = Cell;
     fn next(&mut self) -> Option<Self::Item> {
-        self.cur_cell += 1;
-        if self.cur_cell > self.cell_count {
+        self.cur_cell.set(self.cur_cell.get() + 1);
+        if self.cur_cell.get() > self.cell_count {
             return None;
         }
-        let cell = self.read();
+        let cell = { self.read() };
         self.advance();
         cell
     }
 }
 
-impl<const BLOCKSIZE: usize, const CAPACITY: usize> Cursor<BLOCKSIZE, CAPACITY> {
-    pub fn new(cell_count: u64, head_block_number: u32, disk: &Disk<BLOCKSIZE, CAPACITY>) -> Self {
+impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize>
+    Cursor<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>
+{
+    pub fn new(
+        cell_count: u64,
+        head_block_number: u32,
+        buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
+    ) -> Self {
         Self {
-            cur_cell: 0,
+            cur_cell: std::cell::Cell::new(0),
             cell_count,
-            block_number: head_block_number,
-            offset: FilePageHeader::size() + FileHeader::size(),
-            at_head: true,
-            disk: disk.clone(),
+            block_number: std::cell::Cell::new(head_block_number),
+            offset: std::cell::Cell::new(FileNodeHeader::size() + FileHeader::size()),
+            at_head: std::cell::Cell::new(true),
+            buffer_manager,
         }
     }
 
-    pub fn read(&mut self) -> Option<Cell> {
-        let node = Node::read_from_disk(self.at_head, self.block_number, &self.disk);
-        let rs = unsafe { node.read_record_at(self.offset) };
+    pub fn read(&self) -> Option<Cell> {
+        let page = self.buffer_manager.get_page(self.block_number.get());
+        let node: Node<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
+            Node::from_page(self.at_head.get(), page);
+        let rs = unsafe { node.read_record_at(self.offset.get()) };
         match rs {
             ReadResult::EndOfFile => None,
             ReadResult::Normal(record) => Some(record),
@@ -55,50 +73,54 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> Cursor<BLOCKSIZE, CAPACITY> 
                 remain,
             } => {
                 let next_block = node.next().unwrap();
-                let block = Node::read_from_disk(false, next_block, &self.disk);
-                let remain = block.get_partial_record(remain);
+                let page = self.buffer_manager.get_page(next_block);
+                let node: Node<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> = Node::from_page(false, page);
+                let remain = node.get_partial_record(remain);
                 initial.extend(remain);
                 Some(Cell::new(initial))
             }
         }
     }
 
-    pub fn advance(&mut self) {
-        let block = self.disk.read_block(self.block_number as usize).unwrap();
+    pub fn advance(&self) {
+        let page = self.buffer_manager.get_page(self.block_number.get());
         let is_deleted = u8::from_be_bytes(
-            block.as_slice()[self.offset..self.offset + size_of::<u8>()]
+            page.as_ref()[self.offset.get()..self.offset.get() + size_of::<u8>()]
                 .try_into()
                 .unwrap(),
         ) != 0;
         let len = u32::from_be_bytes(
-            block.as_slice()[self.offset..self.offset + size_of::<u32>()]
+            page.as_ref()[self.offset.get()..self.offset.get() + size_of::<u32>()]
                 .try_into()
                 .unwrap(),
         );
         assert!(len > 0 && len < BLOCKSIZE as u32, "len: {}", len);
-        let next_offset = self.offset + len as usize;
+        let next_offset = self.offset.get() + len as usize;
         if next_offset <= BLOCKSIZE - Cell::header_size() {
-            self.offset = next_offset;
+            self.offset.set(next_offset);
         } else if next_offset >= BLOCKSIZE - Cell::header_size() && next_offset < BLOCKSIZE {
-            let page_header = FilePageHeader::read_from(self.at_head, block.as_ref());
-            self.block_number = page_header.next;
-            self.offset = FilePageHeader::size();
-            self.at_head = false;
+            let page_header = FileNodeHeader::read_from(self.at_head.get(), page.as_ref());
+            self.block_number.set(page_header.next);
+            self.offset.set(FileNodeHeader::size());
+            self.at_head.set(false);
         } else {
-            let page_header = FilePageHeader::read_from(self.at_head, block.as_ref());
-            self.block_number = page_header.next;
-            if self.block_number == 0 {
+            let page_header = FileNodeHeader::read_from(self.at_head.get(), page.as_ref());
+            self.block_number.set(page_header.next);
+            if self.block_number.get() == 0 {
                 panic!("No next page");
             }
-            self.offset = next_offset - BLOCKSIZE + FilePageHeader::size();
-            self.at_head = false;
+            self.offset
+                .set(next_offset - BLOCKSIZE + FileNodeHeader::size());
+            self.at_head.set(false);
         }
     }
 
     pub fn delete(&self) {
-        let mut node = Node::read_from_disk(self.at_head, self.block_number, &self.disk);
+        let page = self.buffer_manager.get_page(self.block_number.get());
+        let mut node: Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
+            Node::from_page(self.at_head.get(), page);
         unsafe {
-            node.delete_record_at(self.offset);
+            node.delete_record_at(self.offset.get());
         }
     }
 }

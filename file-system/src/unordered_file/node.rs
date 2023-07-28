@@ -2,9 +2,11 @@ use std::mem::size_of;
 
 use disk::Disk;
 
+use crate::buffer_manager::{BufferManager, Page};
+
 use super::{
     cell::Cell,
-    header::{FileHeader, FilePageHeader},
+    header::{FileHeader, FileNodeHeader},
 };
 
 #[derive(Debug)]
@@ -14,13 +16,14 @@ pub enum InsertResult {
     OutOfSpace(Cell),
 }
 
-pub struct Node<const BLOCKSIZE: usize, const CAPACITY: usize> {
-    dirty: bool,
-    is_head: bool,
-    block_number: u32,
-    header: FilePageHeader,
-    buffer: Box<[u8; BLOCKSIZE]>,
-    disk: Disk<BLOCKSIZE, CAPACITY>,
+pub struct Node<
+    'a,
+    const BLOCKSIZE: usize,
+    const DISK_CAPACITY: usize,
+    const MEMORY_CAPACITY: usize,
+> {
+    pub is_head: bool,
+    pub page: Page<'a, BLOCKSIZE>,
 }
 
 #[derive(Debug)]
@@ -33,101 +36,79 @@ pub enum ReadResult {
     },
 }
 
-impl<const BLOCKSIZE: usize, const CAPACITY: usize> Node<BLOCKSIZE, CAPACITY> {
-    pub fn read_from_disk(
-        is_head: bool,
-        block_number: u32,
-        disk: &Disk<BLOCKSIZE, CAPACITY>,
-    ) -> Self {
-        let buffer = disk.read_block(block_number as usize).unwrap();
-        let header = FilePageHeader::read_from(is_head, buffer.as_ref());
-        Self {
-            header,
-            dirty: false,
-            is_head,
-            buffer,
-            block_number,
-            disk: disk.clone(),
-        }
+impl<'a, const BLOCKSIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACITY: usize>
+    Node<'a, BLOCKSIZE, DISK_CAPACITY, MEMORY_CAPACITY>
+{
+    pub fn from_page(is_head: bool, page: Page<'a, BLOCKSIZE>) -> Self {
+        Self { is_head, page }
     }
 
-    pub fn new(is_head: bool, block_number: u32, disk: &Disk<BLOCKSIZE, CAPACITY>) -> Self {
+    pub fn new(is_head: bool, mut page: Page<'a, BLOCKSIZE>) -> Self {
         let header_size = if is_head {
-            FilePageHeader::size() + FileHeader::size()
+            FileNodeHeader::size() + FileHeader::size()
         } else {
-            FilePageHeader::size()
+            FileNodeHeader::size()
         };
-        let header = FilePageHeader::new(0, header_size as u32);
-        let mut buffer = Box::new([0; BLOCKSIZE]);
-        header.write_to(is_head, buffer.as_mut());
-        Self {
-            header,
-            buffer,
-            dirty: true,
-            is_head,
-            block_number,
-            disk: disk.clone(),
-        }
+        let header = FileNodeHeader::new(0, header_size as u32);
+        header.write_to(is_head, &mut page);
+        Self { is_head, page }
     }
 
     pub fn free_start(&self) -> u32 {
-        let header = FilePageHeader::read_from(self.is_head, self.buffer.as_ref());
+        let header = FileNodeHeader::read_from(self.is_head, self.page.as_ref());
         header.free_space_start
     }
 
     pub fn set_free_start(&mut self, free_start: u32) {
-        self.dirty = true;
-        let mut header = FilePageHeader::read_from(self.is_head, self.buffer.as_ref());
+        let mut header = FileNodeHeader::read_from(self.is_head, self.page.as_ref());
         header.free_space_start = free_start;
-        header.write_to(self.is_head, self.buffer.as_mut());
+        header.write_to(self.is_head, self.page.as_mut());
     }
 
     pub fn set_tail(&mut self, block_number: u32) {
-        self.dirty = true;
         if !self.is_head {
             panic!("set_tail called on non-head node");
         }
-        let mut header = FileHeader::read_from(self.buffer.as_ref());
+        let mut header = FileHeader::read_from(self.page.as_ref());
         header.tail_page_num = block_number;
-        header.write_to(self.buffer.as_mut());
+        header.write_to(self.page.as_mut());
     }
 
     pub fn tail_page(&self) -> u32 {
         if !self.is_head {
             panic!("tail_page called on non-head node");
         }
-        let header = FileHeader::read_from(self.buffer.as_ref());
+        let header = FileHeader::read_from(self.page.as_ref());
         header.tail_page_num
     }
 
     pub fn set_cell_count(&mut self, count: u64) {
-        self.dirty = true;
         if !self.is_head {
             panic!("set_cell_count called on non-head node");
         }
-        let mut header = FileHeader::read_from(self.buffer.as_ref());
+        let mut header = FileHeader::read_from(self.page.as_ref());
         header.cell_count = count;
-        header.write_to(self.buffer.as_mut());
+        header.write_to(self.page.as_mut());
     }
 
     pub fn cell_count(&self) -> u64 {
         if !self.is_head {
             panic!("cell_count called on non-head node");
         }
-        let header = FileHeader::read_from(self.buffer.as_ref());
+        let header = FileHeader::read_from(self.page.as_ref());
         header.cell_count
     }
 
     pub fn get_partial_record(&self, len: usize) -> Vec<u8> {
         // Partial record is always at the start of the block, after the header
-        let range = FilePageHeader::size()..FilePageHeader::size() + len;
-        self.buffer.as_slice()[range].to_vec()
+        let range = FileNodeHeader::size()..FileNodeHeader::size() + len;
+        self.page.as_ref()[range].to_vec()
     }
 
     /// ### Safety: Must ensure that `start` is correct
     pub unsafe fn read_record_at(&self, start: usize) -> ReadResult {
         let cell_size = u32::from_be_bytes(
-            self.buffer.as_ref()[start..start + size_of::<u32>()]
+            self.page.as_ref()[start..start + size_of::<u32>()]
                 .try_into()
                 .unwrap(),
         );
@@ -137,12 +118,12 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> Node<BLOCKSIZE, CAPACITY> {
         let payload_len = cell_size - Cell::header_size() as u32;
         if cell_size as usize + start < BLOCKSIZE {
             let payload_start = start + Cell::header_size();
-            let buf = self.buffer[payload_start..payload_start + payload_len as usize].to_vec();
+            let buf = self.page[payload_start..payload_start + payload_len as usize].to_vec();
             ReadResult::Normal(Cell::new(buf))
         } else {
             let payload_start = start + Cell::header_size();
             let keep = BLOCKSIZE - payload_start;
-            let buf = self.buffer[payload_start..payload_start + keep as usize].to_vec();
+            let buf = self.page[payload_start..payload_start + keep as usize].to_vec();
 
             assert!(
                 payload_len >= keep as u32,
@@ -159,17 +140,16 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> Node<BLOCKSIZE, CAPACITY> {
     }
 
     pub fn set_next(&mut self, next: u32) {
-        self.dirty = true;
-        let header = FilePageHeader::read_from(self.is_head, self.buffer.as_ref());
-        let page_header = FilePageHeader {
+        let header = FileNodeHeader::read_from(self.is_head, self.page.as_ref());
+        let page_header = FileNodeHeader {
             free_space_start: header.free_space_start,
             next,
         };
-        page_header.write_to(self.is_head, self.buffer.as_mut());
+        page_header.write_to(self.is_head, self.page.as_mut());
     }
 
     pub fn next(&self) -> Option<u32> {
-        let header = FilePageHeader::read_from(self.is_head, self.buffer.as_ref());
+        let header = FileNodeHeader::read_from(self.is_head, self.page.as_ref());
         let next = header.next;
         if next == 0 {
             return None;
@@ -178,28 +158,25 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> Node<BLOCKSIZE, CAPACITY> {
     }
 
     pub fn insert_spilled(&mut self, spilled: &[u8]) {
-        self.dirty = true;
-        let offset = FilePageHeader::size();
+        let offset = FileNodeHeader::size();
 
         let start = offset;
-        self.buffer.as_mut()[start..start + spilled.len()].copy_from_slice(spilled);
-        let page_header = FilePageHeader {
+        self.page.as_mut()[start..start + spilled.len()].copy_from_slice(spilled);
+        let page_header = FileNodeHeader {
             free_space_start: (start + spilled.len()) as u32,
             next: 0,
         };
-        page_header.write_to(false, self.buffer.as_mut());
+        page_header.write_to(false, self.page.as_mut());
     }
 
     pub unsafe fn delete_record_at(&mut self, start: usize) {
-        self.dirty = true;
         self.set_cell_count(self.cell_count() - 1);
         let start = start + size_of::<u32>();
         let end = start + size_of::<u8>();
-        self.buffer.as_mut()[start..end].copy_from_slice(&[true as u8]);
+        self.page.as_mut()[start..end].copy_from_slice(&[true as u8]);
     }
 
     pub fn insert(&mut self, cell: Cell) -> InsertResult {
-        self.dirty = true;
         let offset = self.free_start();
 
         let start = offset as usize;
@@ -214,30 +191,20 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> Node<BLOCKSIZE, CAPACITY> {
             // record can be inserted in a single page
             let cell_buf = cell.serialize();
             let cell_size = cell_buf.len();
-            self.buffer[start..start + cell_size as usize].copy_from_slice(&cell_buf);
-            let page_header = FilePageHeader {
+            self.page[start..start + cell_size as usize].copy_from_slice(&cell_buf);
+            let page_header = FileNodeHeader {
                 free_space_start: end as u32,
                 next: 0,
             };
-            page_header.write_to(self.is_head, self.buffer.as_mut());
+            page_header.write_to(self.is_head, self.page.as_mut());
             return InsertResult::Normal;
         } else {
             // record cannot be inserted in a single page and should be spilled
             let kept_size = BLOCKSIZE - start;
             let cell_buf = cell.serialize();
-            self.buffer[start..BLOCKSIZE].copy_from_slice(cell_buf[..kept_size as usize].as_ref());
+            self.page[start..BLOCKSIZE].copy_from_slice(cell_buf[..kept_size as usize].as_ref());
             self.set_free_start(BLOCKSIZE as u32);
             return InsertResult::Spill(cell_buf, kept_size);
-        }
-    }
-}
-
-impl<const BLOCKSIZE: usize, const CAPACITY: usize> Drop for Node<BLOCKSIZE, CAPACITY> {
-    fn drop(&mut self) {
-        if self.dirty {
-            self.disk
-                .write_block(self.block_number as usize, self.buffer.as_ref())
-                .unwrap();
         }
     }
 }
@@ -247,11 +214,9 @@ mod tests {
     use disk::Disk;
 
     use crate::{
+        buffer_manager::BufferManager,
         free_space_manager::FreeSpaceManager,
-        unordered_file::{
-            cell::Cell,
-            node::{InsertResult, Node, ReadResult},
-        },
+        unordered_file::{cell::Cell, node::Node},
     };
 
     #[test]
@@ -260,7 +225,12 @@ mod tests {
         let disk_manager = FreeSpaceManager::init(&disk);
         let block1 = disk_manager.allocate().unwrap();
         let block2 = disk_manager.allocate().unwrap();
-        let mut root = Node::new(true, block1, &disk);
+        const MEMORY_SIZE: usize = 512 * 16;
+        let memory = vec![0; MEMORY_SIZE];
+        let buffer_manager: BufferManager<512, 65536, MEMORY_SIZE> =
+            BufferManager::init(&memory, &disk);
+        let mut root: Node<'_, 512, 65536, MEMORY_SIZE> =
+            Node::new(true, buffer_manager.get_page(block1));
 
         root.set_next(block2 as u32);
         assert_eq!(root.next(), Some(block2 as u32));
@@ -268,16 +238,22 @@ mod tests {
 
     #[test]
     fn insert_spilled() {
-        let disk = Disk::<512, 4096>::create("node_insert_spilled").unwrap();
+        let disk = Disk::<512, 65536>::create("node_insert_spilled").unwrap();
         let disk_manager = FreeSpaceManager::init(&disk);
         let block1 = disk_manager.allocate().unwrap();
         let block2 = disk_manager.allocate().unwrap();
-        let mut node = Node::new(true, block1, &disk);
+        const MEMORY_SIZE: usize = 512 * 16;
+        let memory = vec![0; MEMORY_SIZE];
+        let buffer_manager: BufferManager<512, 65536, MEMORY_SIZE> =
+            BufferManager::init(&memory, &disk);
+        let mut node: Node<'_, 512, 65536, MEMORY_SIZE> =
+            Node::new(true, buffer_manager.get_page(block1));
         let buf = vec![0xa; 400];
         node.insert(Cell::new(buf));
         let buf = vec![0xa; 200];
         let rs = node.insert(Cell::new(buf));
-        let mut node2 = Node::new(false, block2, &disk);
+        let mut node2: Node<'_, 512, 65536, MEMORY_SIZE> =
+            Node::new(false, buffer_manager.get_page(block1));
         // match rs {
         //     InsertResult::Spill(buf, start) => node2.insert_spilled(&buf[start..]),
         //     _ => panic!("should be spilled"),

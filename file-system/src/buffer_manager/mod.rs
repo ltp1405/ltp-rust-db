@@ -9,7 +9,6 @@ use self::page::FrameAllocator;
 pub use page::Page;
 pub use page::PageTable;
 
-
 pub struct BufferManager<
     'a,
     const BLOCK_SIZE: usize,

@@ -50,7 +50,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
             } else {
                 1
             };
-        let files_table = FilesTable::open(&buffer_manager, &disk_manager, files_table_pos as u32);
+        let files_table = FilesTable::open(&buffer_manager, &disk_manager);
         Ok(Self {
             files_table,
             buffer_manager,

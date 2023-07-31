@@ -42,9 +42,14 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
     pub fn open(
         buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
         disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
-        block_number: u32,
     ) -> Self {
-        let file = File::open(buffer_manager, disk_manager, block_number);
+        let files_table_pos = Bitmap::<BLOCKSIZE, CAPACITY>::size() / BLOCKSIZE
+            + if Bitmap::<BLOCKSIZE, CAPACITY>::size() % BLOCKSIZE == 0 {
+                0
+            } else {
+                1
+            };
+        let file = File::open(buffer_manager, disk_manager, files_table_pos as u32);
         Self {
             file,
             disk_manager: disk_manager.clone(),
@@ -85,21 +90,35 @@ mod tests {
         const BLOCKSIZE: usize = 512;
         const CAPACITY: usize = 512 * 128;
         const MEMORY_CAPACITY: usize = 512 * 32;
-        let memory = [0; MEMORY_CAPACITY];
         let disk = Disk::<BLOCKSIZE, CAPACITY>::create("test_files_table").unwrap();
         let disk_manager = FreeSpaceManager::init(&disk);
-        let buffer_manager = BufferManager::init(&memory, &disk);
-        let file = File::init(&disk_manager, &buffer_manager);
-        let mut files_table = FilesTable::<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>::init(
-            &buffer_manager,
-            &disk_manager,
-        );
-        files_table.add_file("test", 1);
-        files_table.add_file("test2", 2);
-        files_table.add_file("test3", 3);
-        assert_eq!(files_table.search_file("test"), Some(1));
-        assert_eq!(files_table.search_file("test2"), Some(2));
-        assert_eq!(files_table.search_file("test3"), Some(3));
-        assert_eq!(files_table.search_file("test4"), None);
+
+        {
+            let memory = [0; MEMORY_CAPACITY];
+            let buffer_manager = BufferManager::init(&memory, &disk);
+            let files_table = FilesTable::<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>::init(
+                &buffer_manager,
+                &disk_manager,
+            );
+            files_table.add_file("test", 1);
+            files_table.add_file("test2", 2);
+            files_table.add_file("test3", 3);
+            assert_eq!(files_table.search_file("test"), Some(1));
+            assert_eq!(files_table.search_file("test2"), Some(2));
+            assert_eq!(files_table.search_file("test3"), Some(3));
+            assert_eq!(files_table.search_file("test4"), None);
+        }
+        {
+            let memory = [0; MEMORY_CAPACITY];
+            let buffer_manager = BufferManager::init(&memory, &disk);
+            let files_table = FilesTable::<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>::open(
+                &buffer_manager,
+                &disk_manager,
+            );
+            assert_eq!(files_table.search_file("test"), Some(1));
+            assert_eq!(files_table.search_file("test2"), Some(2));
+            assert_eq!(files_table.search_file("test3"), Some(3));
+            assert_eq!(files_table.search_file("test4"), None);
+        }
     }
 }

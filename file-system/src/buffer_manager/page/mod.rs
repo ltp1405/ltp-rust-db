@@ -70,13 +70,9 @@ impl<'a> PageTable<'a> {
     }
 
     fn get_entry(&self, page_number: u32) -> Option<PageTableEntry> {
-        println!("Page number {}", page_number);
-        println!("{:?}", &self.table_buffer[0..100]);
         let entry_ptr = unsafe { self.table_buffer.as_ptr().add((page_number * 10) as usize) };
         let entry_slice = unsafe { slice_from_raw_parts(entry_ptr, 10).as_ref().unwrap() };
-        println!("Entry slice {:?}", entry_slice);
         let entry = PageTableEntry::from_bytes(entry_slice);
-        println!("Entry {:?}", entry.entry);
         if entry.is_empty() {
             None
         } else {
@@ -114,8 +110,7 @@ impl<'a> PageTable<'a> {
     }
 
     fn drop_page(&mut self, page_number: u32) {
-        println!("{}", page_number);
-        println!("Current Mem {:?}", &self.table_buffer[0..100]);
+        println!("DROP {}", page_number);
         let mut entry = self.get_entry(page_number).unwrap();
         entry.unpin();
         self.write_entry(page_number, entry);

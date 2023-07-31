@@ -149,17 +149,29 @@ mod tests {
         const BLOCKSIZE: usize = 512;
         const CAPACITY: usize = 512 * 128;
         const MEMORY_CAPACITY: usize = 512 * 32;
-        let memory = [0; MEMORY_CAPACITY];
         let disk = Disk::<BLOCKSIZE, CAPACITY>::create("test_simple_read").unwrap();
         let disk_manager = FreeSpaceManager::init(&disk);
-        let buffer_manager: BufferManager<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
-            BufferManager::init(&memory, &disk);
-        let mut file = File::init(&disk_manager, &buffer_manager);
-        let record = Cell::new(vec![1, 2, 3]);
-        file.insert(record);
-        let mut cursor = file.cursor();
-        let record = cursor.read();
-        let block = disk.read_block(file.head_page_number as usize).unwrap();
+
+        {
+            let memory = [0; MEMORY_CAPACITY];
+            let buffer_manager: BufferManager<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
+                BufferManager::init(&memory, &disk);
+            let file = File::init(&disk_manager, &buffer_manager);
+            let record = Cell::new(vec![1, 2, 3]);
+            file.insert(record);
+            let cell = file.cursor().next().unwrap();
+            assert_eq!(cell.to_vec(), vec![1, 2, 3]);
+            panic!()
+        }
+        // {
+        //     let memory = [0; MEMORY_CAPACITY];
+        //     let buffer_manager: BufferManager<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
+        //         BufferManager::init(&memory, &disk);
+        //     let file = File::open(&buffer_manager, &disk_manager, 0);
+        //     let mut cursor = file.cursor();
+        //     let record = cursor.next().unwrap();
+        //     assert_eq!(record, Cell::new(vec![1, 2, 3]));
+        // }
     }
 
     #[test]

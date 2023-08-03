@@ -80,6 +80,21 @@ impl<'a> PageTable<'a> {
         }
     }
 
+    pub fn get_frame_number(&self, page_number: u32) -> Option<u32> {
+        let entry = self.get_entry(page_number)?;
+        Some(entry.get_frame_number())
+    }
+
+    pub fn is_dirty(&self, page_number: u32) -> Option<bool> {
+        let entry = self.get_entry(page_number)?;
+        Some(entry.entry[9] == 1)
+    }
+
+    pub fn is_pinned(&self, page_number: u32) -> Option<bool> {
+        let entry = self.get_entry(page_number)?;
+        Some(entry.get_pin() > 0)
+    }
+
     pub fn map_to_frame(&mut self, page_number: u32, frame_number: u32) {
         let mut entry = PageTableEntry::zero();
         entry.set_page_number(page_number);

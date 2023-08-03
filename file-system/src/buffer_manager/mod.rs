@@ -32,6 +32,24 @@ impl<'a, const BLOCK_SIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPAC
         }
     }
 
+    pub fn save_page(&'a self, page_number: u32) -> Result<(), &'static str> {
+        let page: Page<BLOCK_SIZE> = PageTable::read(&self.memory).get_page(page_number).unwrap();
+        let frame = PageTable::read(&self.memory)
+            .get_frame_number(page_number)
+            .unwrap();
+        if PageTable::read(&self.memory)
+            .is_pinned(page_number)
+            .unwrap()
+        {
+            return Err("Page is pinned");
+        }
+        if PageTable::read(&self.memory).is_dirty(page_number).unwrap() {
+            self.disk.write_block(frame as usize, &page).unwrap();
+        }
+        self.disk.write_block(frame as usize, &page).unwrap();
+        Ok(())
+    }
+
     pub fn get_page(&'a self, page_number: u32) -> page::Page<'a, BLOCK_SIZE> {
         match PageTable::read(&self.memory).get_page(page_number) {
             Some(page) => page,

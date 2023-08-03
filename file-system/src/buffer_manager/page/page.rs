@@ -6,15 +6,15 @@ use std::{
 
 use super::PageTable;
 
-type Memory<const CAPACITY: usize> = [u8; CAPACITY];
+pub type Memory<'a> = &'a [u8];
 
 pub struct Page<'a, const PAGE_SIZE: usize> {
     page_number: u32,
-    memory: &'a [u8],
+    memory: Memory<'a>,
 }
 
 impl<'a, const PAGE_SIZE: usize> Page<'a, PAGE_SIZE> {
-    pub fn init(page_number: u32, memory: &'a [u8]) -> Self {
+    pub fn init(page_number: u32, memory: Memory<'a>) -> Self {
         let page_number = page_number as usize;
         if page_number * PAGE_SIZE >= memory.len() {
             panic!("Memory out of bound");

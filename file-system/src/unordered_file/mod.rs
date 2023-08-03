@@ -72,6 +72,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         )
     }
 
+    pub fn save(&self) {
+    }
+
     pub fn insert(&self, cell: Cell) {
         // Traverse to the last page
         // If the last page is full, allocate a new page
@@ -161,7 +164,6 @@ mod tests {
             file.insert(record);
             let cell = file.cursor().next().unwrap();
             assert_eq!(cell.to_vec(), vec![1, 2, 3]);
-            panic!()
         }
         // {
         //     let memory = [0; MEMORY_CAPACITY];

@@ -8,16 +8,6 @@ use super::{
     node::{Node, ReadResult},
 };
 
-trait Animal {
-    fn make_sound(&self) -> String;
-}
-
-trait Cat: Animal {
-    fn meow(&self) -> String {
-        "meow".to_string()
-    }
-}
-
 pub struct Cursor<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize> {
     block_number: std::cell::Cell<u32>,
     offset: std::cell::Cell<usize>,

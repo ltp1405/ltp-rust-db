@@ -43,10 +43,6 @@ impl PageTableEntry {
         self.entry[8] -= 1;
     }
 
-    fn get_page_number(&self) -> u32 {
-        u32::from_be_bytes(self.entry[0..4].try_into().unwrap())
-    }
-
     fn get_frame_number(&self) -> u32 {
         u32::from_be_bytes(self.entry[4..8].try_into().unwrap())
     }
@@ -85,6 +81,12 @@ impl<'a> PageTable<'a> {
         Some(entry.get_frame_number())
     }
 
+    pub fn set_dirty(&mut self, page_number: u32) {
+        let mut entry = self.get_entry(page_number).unwrap();
+        entry.entry[9] = 1;
+        self.write_entry(page_number, entry);
+    }
+
     pub fn is_dirty(&self, page_number: u32) -> Option<bool> {
         let entry = self.get_entry(page_number)?;
         Some(entry.entry[9] == 1)
@@ -97,7 +99,6 @@ impl<'a> PageTable<'a> {
 
     pub fn map_to_frame(&mut self, page_number: u32, frame_number: u32) {
         let mut entry = PageTableEntry::zero();
-        entry.set_page_number(page_number);
         entry.set_frame_number(frame_number);
         self.write_entry(page_number, entry);
     }
@@ -120,7 +121,7 @@ impl<'a> PageTable<'a> {
         let frame_number = entry.get_frame_number();
         entry.pin();
         self.write_entry(page_number, entry);
-        let page = Some(Page::init(page_number, self.table_buffer));
+        let page = Some(Page::init(page_number, frame_number, self.table_buffer));
         page
     }
 
@@ -129,6 +130,8 @@ impl<'a> PageTable<'a> {
         let mut entry = self.get_entry(page_number).unwrap();
         entry.unpin();
         self.write_entry(page_number, entry);
+        let pin = self.get_entry(page_number).unwrap().get_pin();
+        println!("PIN {}", pin);
     }
 }
 

@@ -50,7 +50,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
             } else {
                 1
             };
-        let files_table = FilesTable::open(&buffer_manager, &disk_manager);
+        let files_table = FilesTable::open(&buffer_manager, &disk_manager, 1);
         Ok(Self {
             files_table,
             buffer_manager,
@@ -63,7 +63,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         name: &str,
     ) -> Result<File<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>, FileSystemError> {
         let file = File::init(&self.disk_manager, &self.buffer_manager);
+        println!("file head page number: {}", file.head_page_number);
         self.files_table.add_file(name, file.head_page_number);
+        self.save_files_table();
         Ok(file)
     }
 
@@ -77,5 +79,47 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
             .ok_or(FileSystemError::FileNotFound)?;
         let file = File::open(&self.buffer_manager, &self.disk_manager, num);
         Ok(file)
+    }
+
+    pub fn save_files_table(&self) {
+        self.files_table.save()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{buffer_manager::BufferManager, free_space_manager::FreeSpaceManager, FileSystem};
+
+    #[test]
+    fn create_open_file() {
+        use disk::Disk;
+
+        const BLOCKSIZE: usize = 512;
+        const CAPACITY: usize = BLOCKSIZE * 512;
+        const MEMORY_CAPACITY: usize = BLOCKSIZE * 32;
+        let disk = Disk::create("create_open_file").unwrap();
+        let disk_manager = FreeSpaceManager::init(&disk);
+
+        {
+            let memory = [0; MEMORY_CAPACITY];
+            let buffer_manager = BufferManager::init(&memory, &disk);
+            let file_system = FileSystem::<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>::init(
+                &buffer_manager,
+                &disk_manager,
+            )
+            .unwrap();
+            let _file1 = file_system.create_file("file1").unwrap();
+            file_system.save_files_table()
+        }
+        {
+            let memory = [0; MEMORY_CAPACITY];
+            let buffer_manager = BufferManager::init(&memory, &disk);
+            let file_system = FileSystem::<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>::open(
+                &buffer_manager,
+                &disk_manager,
+            )
+            .unwrap();
+            let _file1 = file_system.open_file("file1").unwrap();
+        }
     }
 }

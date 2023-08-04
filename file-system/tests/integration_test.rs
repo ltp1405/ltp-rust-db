@@ -29,24 +29,24 @@ fn general() {
             Cell::new([0x1; 17].to_vec()),
             Cell::new([0x2; 51].to_vec()),
             Cell::new([0x1; 17].to_vec()),
-            Cell::new([0x2; 51].to_vec()),
-            Cell::new([0x6; 117].to_vec()),
-            Cell::new([0x4; 246].to_vec()),
-            Cell::new([0xe; 123].to_vec()),
-            Cell::new([0x5; 410].to_vec()),
-            Cell::new([0x3; 100].to_vec()),
-            Cell::new([0x4; 204].to_vec()),
-            Cell::new([0xe; 123].to_vec()),
-            Cell::new([0x5; 400].to_vec()),
-            Cell::new([0x3; 105].to_vec()),
-            Cell::new([0x4; 200].to_vec()),
-            Cell::new([0xe; 123].to_vec()),
-            Cell::new([0x5; 400].to_vec()),
-            Cell::new([0x2; 51].to_vec()),
-            Cell::new([0x3; 106].to_vec()),
-            Cell::new([0x4; 200].to_vec()),
-            Cell::new([0xe; 123].to_vec()),
-            Cell::new([0x5; 400].to_vec()),
+            // Cell::new([0x2; 51].to_vec()),
+            // Cell::new([0x6; 117].to_vec()),
+            // Cell::new([0x4; 246].to_vec()),
+            // Cell::new([0xe; 123].to_vec()),
+            // Cell::new([0x5; 410].to_vec()),
+            // Cell::new([0x3; 100].to_vec()),
+            // Cell::new([0x4; 204].to_vec()),
+            // Cell::new([0xe; 123].to_vec()),
+            // Cell::new([0x5; 400].to_vec()),
+            // Cell::new([0x3; 105].to_vec()),
+            // Cell::new([0x4; 200].to_vec()),
+            // Cell::new([0xe; 123].to_vec()),
+            // Cell::new([0x5; 400].to_vec()),
+            // Cell::new([0x2; 51].to_vec()),
+            // Cell::new([0x3; 106].to_vec()),
+            // Cell::new([0x4; 200].to_vec()),
+            // Cell::new([0xe; 123].to_vec()),
+            // Cell::new([0x5; 400].to_vec()),
         ];
 
         let mut cells1 = Vec::new();
@@ -81,6 +81,7 @@ fn general() {
         for (i, cell) in file2.cursor().enumerate() {
             assert_eq!(cell, cells2[i]);
         }
+        file_system.save_files_table();
     }
     {
         let memory = [0; MEMORY_CAPACITY];

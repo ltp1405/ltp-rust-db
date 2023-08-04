@@ -9,91 +9,34 @@ use super::PageTable;
 pub type Memory<'a> = &'a [u8];
 
 pub struct Page<'a, const PAGE_SIZE: usize> {
-    page_number: u32,
+    pub page_number: u32,
+    pub frame_number: u32,
     memory: Memory<'a>,
 }
 
 impl<'a, const PAGE_SIZE: usize> Page<'a, PAGE_SIZE> {
-    pub fn init(page_number: u32, memory: Memory<'a>) -> Self {
-        let page_number = page_number as usize;
-        if page_number * PAGE_SIZE >= memory.len() {
+    pub fn init(page_number: u32, frame_number: u32, memory: Memory<'a>) -> Self {
+        let frame_number = frame_number as usize;
+        if frame_number * PAGE_SIZE >= memory.len() {
             panic!("Memory out of bound");
         }
         Self {
             page_number: page_number as u32,
+            frame_number: frame_number as u32,
             memory,
         }
     }
 
     pub fn buffer(&self) -> &[u8] {
-        let page_number = self.page_number as usize;
-        &self.memory[page_number * PAGE_SIZE..(page_number + 1) * PAGE_SIZE]
+        let frame_number = self.frame_number as usize;
+        &self.memory[frame_number * PAGE_SIZE..(frame_number + 1) * PAGE_SIZE]
     }
 
     pub fn buffer_mut(&self) -> &mut [u8] {
-        let page_number = self.page_number as usize;
-        let buffer_ptr = unsafe { self.memory.as_ptr().add(page_number * PAGE_SIZE) as *mut u8 };
+        let frame_number = self.frame_number as usize;
+        let buffer_ptr = unsafe { self.memory.as_ptr().add(frame_number * PAGE_SIZE) as *mut u8 };
         let s = slice_from_raw_parts_mut(buffer_ptr, PAGE_SIZE);
         unsafe { s.as_mut().unwrap() }
-    }
-
-    pub unsafe fn read_val_at<T>(&self, pos: usize) -> T {
-        if pos + size_of::<T>() > PAGE_SIZE {
-            panic!("Memory out of bound");
-        }
-        let buffer_ptr = self.buffer().as_ptr().add(pos) as *const T;
-        unsafe { buffer_ptr.read_unaligned() }
-    }
-
-    pub unsafe fn get_val_at<T>(&self, pos: usize) -> &T {
-        if pos + size_of::<T>() > PAGE_SIZE {
-            panic!("Memory out of bound");
-        }
-        let buffer_ptr = (self.buffer().as_ptr()).add(pos) as *const T;
-        unsafe { buffer_ptr.as_ref().unwrap() }
-    }
-
-    pub unsafe fn get_val_mut_at<T>(&self, pos: usize) -> &mut T {
-        if pos + size_of::<T>() > PAGE_SIZE {
-            panic!("Memory out of bound");
-        }
-        let buffer_ptr = self.buffer().as_ptr().add(pos) as *mut T;
-        unsafe { buffer_ptr.as_mut().unwrap() }
-    }
-
-    pub unsafe fn write_val_at<T>(&self, pos: usize, val: T) {
-        if pos + size_of::<T>() > PAGE_SIZE {
-            panic!("Memory out of bound");
-        }
-        let buffer_ptr = self.buffer().as_ptr().add(pos) as *mut T;
-        unsafe { buffer_ptr.write(val) }
-    }
-
-    pub fn read_buf_at(&self, pos: usize, len: usize) -> &[u8] {
-        if pos + len > PAGE_SIZE {
-            panic!("Memory out of bound");
-        }
-        let buffer_ptr = unsafe { self.buffer().as_ptr().add(pos) as *mut u8 };
-        let s = slice_from_raw_parts(buffer_ptr, len);
-        unsafe { s.as_ref().unwrap() }
-    }
-
-    pub fn get_buf_mut_at(&self, pos: usize, len: usize) -> &mut [u8] {
-        if pos + len > PAGE_SIZE {
-            panic!("Memory out of bound");
-        }
-        let buffer_ptr = unsafe { self.buffer().as_ptr().add(pos) as *mut u8 };
-        let s = slice_from_raw_parts_mut(buffer_ptr, len);
-        unsafe { s.as_mut().unwrap() }
-    }
-
-    pub fn write_buf_at(&self, pos: usize, buf: &[u8]) {
-        if pos + buf.len() > PAGE_SIZE {
-            panic!("Memory out of bound");
-        }
-        let buffer_ptr = unsafe { self.buffer().as_ptr().add(pos) as *mut u8 };
-        let s = slice_from_raw_parts_mut(buffer_ptr, buf.len());
-        unsafe { s.as_mut().unwrap().copy_from_slice(buf) }
     }
 }
 
@@ -107,13 +50,14 @@ impl<const PAGE_SIZE: usize> Deref for Page<'_, PAGE_SIZE> {
 
 impl<const PAGE_SIZE: usize> DerefMut for Page<'_, PAGE_SIZE> {
     fn deref_mut(&mut self) -> &mut Self::Target {
+        PageTable::read(&self.memory).set_dirty(self.page_number);
         self.buffer_mut()
     }
 }
 
 impl<const PAGE_SIZE: usize> Drop for Page<'_, PAGE_SIZE> {
     fn drop(&mut self) {
-        PageTable::read(&self.memory).drop_page(self.page_number)
+        PageTable::read(&self.memory).drop_page(self.page_number);
     }
 }
 

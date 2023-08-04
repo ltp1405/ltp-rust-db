@@ -32,7 +32,6 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
             } else {
                 1
             };
-        // assert_eq!(files_table_pos, file.head_page_number as usize);
         Self {
             file,
             disk_manager: disk_manager.clone(),
@@ -42,14 +41,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
     pub fn open(
         buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
         disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+        pos: u32,
     ) -> Self {
-        let files_table_pos = Bitmap::<BLOCKSIZE, CAPACITY>::size() / BLOCKSIZE
-            + if Bitmap::<BLOCKSIZE, CAPACITY>::size() % BLOCKSIZE == 0 {
-                0
-            } else {
-                1
-            };
-        let file = File::open(buffer_manager, disk_manager, files_table_pos as u32);
+        let file = File::open(buffer_manager, disk_manager, pos as u32);
         Self {
             file,
             disk_manager: disk_manager.clone(),
@@ -77,6 +71,10 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         }
         None
     }
+
+    pub fn save(&self) {
+        self.file.save();
+    }
 }
 
 #[cfg(test)]
@@ -84,6 +82,49 @@ mod tests {
     use super::*;
     use crate::free_space_manager::FreeSpaceManager;
     use disk::Disk;
+
+    #[test]
+    fn test_file_table_with_normal_file() {
+        const BLOCKSIZE: usize = 512;
+        const CAPACITY: usize = 512 * 128;
+        const MEMORY_CAPACITY: usize = 512 * 32;
+        let disk = Disk::<BLOCKSIZE, CAPACITY>::create("test_file_table2").unwrap();
+        let disk_manager = FreeSpaceManager::init(&disk);
+
+        {
+            let memory = [0; MEMORY_CAPACITY];
+            let buffer_manager = BufferManager::init(&memory, &disk);
+            let files_table = FilesTable::<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>::init(
+                &buffer_manager,
+                &disk_manager,
+            );
+            let file = File::init(&disk_manager, &buffer_manager);
+            file.insert(Cell::new("test".as_bytes().to_vec()));
+            file.insert(Cell::new("test".as_bytes().to_vec()));
+            file.insert(Cell::new("test".as_bytes().to_vec()));
+            files_table.add_file("test", 1);
+            files_table.add_file("test2", 2);
+            files_table.add_file("test3", 3);
+            assert_eq!(files_table.search_file("test"), Some(1));
+            assert_eq!(files_table.search_file("test2"), Some(2));
+            assert_eq!(files_table.search_file("test3"), Some(3));
+            assert_eq!(files_table.search_file("test4"), None);
+            files_table.file.save();
+        }
+        {
+            let memory = [0; MEMORY_CAPACITY];
+            let buffer_manager = BufferManager::init(&memory, &disk);
+            let files_table = FilesTable::<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>::open(
+                &buffer_manager,
+                &disk_manager,
+                1,
+            );
+            assert_eq!(files_table.search_file("test"), Some(1));
+            assert_eq!(files_table.search_file("test2"), Some(2));
+            assert_eq!(files_table.search_file("test3"), Some(3));
+            assert_eq!(files_table.search_file("test4"), None);
+        }
+    }
 
     #[test]
     fn test_files_table() {
@@ -107,6 +148,7 @@ mod tests {
             assert_eq!(files_table.search_file("test2"), Some(2));
             assert_eq!(files_table.search_file("test3"), Some(3));
             assert_eq!(files_table.search_file("test4"), None);
+            files_table.file.save();
         }
         {
             let memory = [0; MEMORY_CAPACITY];
@@ -114,6 +156,7 @@ mod tests {
             let files_table = FilesTable::<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>::open(
                 &buffer_manager,
                 &disk_manager,
+                1,
             );
             assert_eq!(files_table.search_file("test"), Some(1));
             assert_eq!(files_table.search_file("test2"), Some(2));

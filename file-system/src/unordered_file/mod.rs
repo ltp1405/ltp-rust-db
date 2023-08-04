@@ -72,9 +72,6 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         )
     }
 
-    pub fn save(&self) {
-    }
-
     pub fn insert(&self, cell: Cell) {
         // Traverse to the last page
         // If the last page is full, allocate a new page
@@ -141,6 +138,28 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
             }
         }
     }
+
+    pub fn save(&self) {
+        let current_page = self.buffer_manager.get_page(self.head_page_number);
+        let current_node: Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
+            Node::from_page(true, current_page);
+        let mut next_page_num = current_node.next();
+        drop(current_node);
+        self.buffer_manager
+            .save_page(self.head_page_number)
+            .unwrap();
+        loop {
+            if next_page_num.is_none() {
+                break;
+            }
+            let next = next_page_num.unwrap();
+            let next_page = self.buffer_manager.get_page(next);
+            let next_node: Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
+                Node::from_page(false, next_page);
+            self.buffer_manager.save_page(next).unwrap();
+            next_page_num = next_node.next();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -164,16 +183,17 @@ mod tests {
             file.insert(record);
             let cell = file.cursor().next().unwrap();
             assert_eq!(cell.to_vec(), vec![1, 2, 3]);
+            file.save();
         }
-        // {
-        //     let memory = [0; MEMORY_CAPACITY];
-        //     let buffer_manager: BufferManager<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
-        //         BufferManager::init(&memory, &disk);
-        //     let file = File::open(&buffer_manager, &disk_manager, 0);
-        //     let mut cursor = file.cursor();
-        //     let record = cursor.next().unwrap();
-        //     assert_eq!(record, Cell::new(vec![1, 2, 3]));
-        // }
+        {
+            let memory = [0; MEMORY_CAPACITY];
+            let buffer_manager: BufferManager<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
+                BufferManager::init(&memory, &disk);
+            let file = File::open(&buffer_manager, &disk_manager, 1);
+            let mut cursor = file.cursor();
+            let record = cursor.next().unwrap();
+            assert_eq!(record, Cell::new(vec![1, 2, 3]));
+        }
     }
 
     #[test]

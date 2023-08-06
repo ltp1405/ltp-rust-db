@@ -89,7 +89,7 @@ mod tests {
     use disk::Disk;
     use rand::Rng;
 
-    use crate::free_space_manager::bitmap::{read_bitmap_from_disk, write_bitmap_to_disk};
+    use crate::disk_manager::bitmap::{read_bitmap_from_disk, write_bitmap_to_disk};
 
     use super::Bitmap;
 

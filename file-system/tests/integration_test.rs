@@ -1,6 +1,6 @@
 use disk::Disk;
 use file_system::{
-    buffer_manager::BufferManager, free_space_manager::FreeSpaceManager, unordered_file::Cell,
+    buffer_manager::BufferManager, disk_manager::DiskManager, unordered_file::Cell,
     FileSystem,
 };
 
@@ -10,7 +10,7 @@ fn general() {
     const CAPACITY: usize = BLOCKSIZE * 512;
     const MEMORY_CAPACITY: usize = 512 * 32;
     let disk = Disk::create("test.db").unwrap();
-    let disk_manager = FreeSpaceManager::init(&disk);
+    let disk_manager = DiskManager::init(&disk);
 
     {
         let memory = [0; MEMORY_CAPACITY];

@@ -1,10 +1,8 @@
 use std::mem::size_of;
 
-use disk::Disk;
-
 use crate::{
     buffer_manager::BufferManager,
-    free_space_manager::{bitmap::Bitmap, FreeSpaceManager},
+    disk_manager::{bitmap::Bitmap, DiskManager},
     unordered_file::{Cell, File},
 };
 
@@ -15,7 +13,7 @@ pub struct FilesTable<
     const MEMORY_CAPACITY: usize,
 > {
     file: File<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-    disk_manager: FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+    disk_manager: DiskManager<BLOCKSIZE, CAPACITY>,
 }
 
 impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize>
@@ -23,24 +21,22 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
 {
     pub fn init(
         buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-        disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
-    ) -> Self {
+        disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
+    ) -> (Self, u32) {
         let file = File::init(disk_manager, buffer_manager);
-        let files_table_pos = Bitmap::<BLOCKSIZE, CAPACITY>::size() / BLOCKSIZE
-            + if Bitmap::<BLOCKSIZE, CAPACITY>::size() % BLOCKSIZE == 0 {
-                0
-            } else {
-                1
-            };
-        Self {
-            file,
-            disk_manager: disk_manager.clone(),
-        }
+        let pos = file.1;
+        (
+            Self {
+                file: file.0,
+                disk_manager: disk_manager.clone(),
+            },
+            file.1,
+        )
     }
 
     pub fn open(
         buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-        disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+        disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
         pos: u32,
     ) -> Self {
         let file = File::open(buffer_manager, disk_manager, pos as u32);
@@ -80,7 +76,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::free_space_manager::FreeSpaceManager;
+    use crate::disk_manager::DiskManager;
     use disk::Disk;
 
     #[test]
@@ -89,7 +85,7 @@ mod tests {
         const CAPACITY: usize = 512 * 128;
         const MEMORY_CAPACITY: usize = 512 * 32;
         let disk = Disk::<BLOCKSIZE, CAPACITY>::create("test_file_table2").unwrap();
-        let disk_manager = FreeSpaceManager::init(&disk);
+        let disk_manager = DiskManager::init(&disk);
 
         {
             let memory = [0; MEMORY_CAPACITY];
@@ -97,8 +93,8 @@ mod tests {
             let files_table = FilesTable::<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>::init(
                 &buffer_manager,
                 &disk_manager,
-            );
-            let file = File::init(&disk_manager, &buffer_manager);
+            ).0;
+            let file = File::init(&disk_manager, &buffer_manager).0;
             file.insert(Cell::new("test".as_bytes().to_vec()));
             file.insert(Cell::new("test".as_bytes().to_vec()));
             file.insert(Cell::new("test".as_bytes().to_vec()));
@@ -132,7 +128,7 @@ mod tests {
         const CAPACITY: usize = 512 * 128;
         const MEMORY_CAPACITY: usize = 512 * 32;
         let disk = Disk::<BLOCKSIZE, CAPACITY>::create("test_files_table").unwrap();
-        let disk_manager = FreeSpaceManager::init(&disk);
+        let disk_manager = DiskManager::init(&disk);
 
         {
             let memory = [0; MEMORY_CAPACITY];
@@ -140,7 +136,7 @@ mod tests {
             let files_table = FilesTable::<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>::init(
                 &buffer_manager,
                 &disk_manager,
-            );
+            ).0;
             files_table.add_file("test", 1);
             files_table.add_file("test2", 2);
             files_table.add_file("test3", 3);

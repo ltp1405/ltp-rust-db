@@ -5,7 +5,7 @@ mod node;
 
 use disk::Disk;
 
-use crate::{buffer_manager::BufferManager, free_space_manager::FreeSpaceManager};
+use crate::{buffer_manager::BufferManager, disk_manager::DiskManager};
 
 pub use cell::Cell;
 pub use cursor::Cursor;
@@ -17,7 +17,7 @@ use self::header::FileNodeHeader;
 /// A `File` which only contain records from one `Table`
 /// Implemented as a linked list of page
 pub struct File<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize> {
-    disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+    disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
     buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
     pub head_page_number: u32,
 }
@@ -26,9 +26,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
     File<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>
 {
     pub fn init(
-        disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+        disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
         buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-    ) -> Self {
+    ) -> (Self, u32) {
         let new_page_number = disk_manager.allocate().unwrap();
         let new_page = buffer_manager.get_page(new_page_number);
         let file_header = FileHeader {
@@ -43,16 +43,19 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
             next: 0,
         };
         page_header.write_to(true, new_page.buffer_mut());
-        File {
-            disk_manager,
-            buffer_manager,
-            head_page_number: new_page_number,
-        }
+        (
+            File {
+                disk_manager,
+                buffer_manager,
+                head_page_number: new_page_number,
+            },
+            new_page_number,
+        )
     }
 
     pub fn open(
         buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-        disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+        disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
         first_page_num: u32,
     ) -> Self {
         File {
@@ -172,13 +175,13 @@ mod tests {
         const CAPACITY: usize = 512 * 128;
         const MEMORY_CAPACITY: usize = 512 * 32;
         let disk = Disk::<BLOCKSIZE, CAPACITY>::create("test_simple_read").unwrap();
-        let disk_manager = FreeSpaceManager::init(&disk);
+        let disk_manager = DiskManager::init(&disk);
 
         {
             let memory = [0; MEMORY_CAPACITY];
             let buffer_manager: BufferManager<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
                 BufferManager::init(&memory, &disk);
-            let file = File::init(&disk_manager, &buffer_manager);
+            let file = File::init(&disk_manager, &buffer_manager).0;
             let record = Cell::new(vec![1, 2, 3]);
             file.insert(record);
             let cell = file.cursor().next().unwrap();
@@ -203,7 +206,7 @@ mod tests {
         const MEMORY_CAPACITY: usize = 512 * 32;
         let memory = [0; MEMORY_CAPACITY];
         let disk = Disk::<BLOCKSIZE, CAPACITY>::create("edge_case").unwrap();
-        let disk_manager = FreeSpaceManager::init(&disk);
+        let disk_manager = DiskManager::init(&disk);
         let buffer_manager: BufferManager<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
             BufferManager::init(&memory, &disk);
         let mut file = File::init(&disk_manager, &buffer_manager);
@@ -212,14 +215,14 @@ mod tests {
     #[test]
     fn complete_read() {
         let disk = Disk::<4096, 65536>::create("test_complete_read").unwrap();
-        let disk_manager = FreeSpaceManager::init(&disk);
+        let disk_manager = DiskManager::init(&disk);
         // let mut file = File::init(&disk, &disk_manager);
     }
 
     #[test]
     fn random_insert_read() {
         let disk = Disk::<4096, 819200>::create("test_random_insert_read").unwrap();
-        let disk_manager = FreeSpaceManager::init(&disk);
+        let disk_manager = DiskManager::init(&disk);
         // let mut file = File::init(&disk, &disk_manager);
         let mut rng = rand::thread_rng();
     }

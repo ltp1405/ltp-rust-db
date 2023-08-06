@@ -1,7 +1,5 @@
 use std::mem::size_of;
 
-use disk::Disk;
-
 use crate::buffer_manager::{BufferManager, Page};
 
 use super::{
@@ -215,14 +213,14 @@ mod tests {
 
     use crate::{
         buffer_manager::BufferManager,
-        free_space_manager::FreeSpaceManager,
+        disk_manager::DiskManager,
         unordered_file::{cell::Cell, node::Node},
     };
 
     #[test]
     fn next() {
         let disk = Disk::<512, 65536>::create("node_next").unwrap();
-        let disk_manager = FreeSpaceManager::init(&disk);
+        let disk_manager = DiskManager::init(&disk);
         let block1 = disk_manager.allocate().unwrap();
         let block2 = disk_manager.allocate().unwrap();
         const MEMORY_SIZE: usize = 512 * 16;
@@ -239,7 +237,7 @@ mod tests {
     #[test]
     fn insert_spilled() {
         let disk = Disk::<512, 65536>::create("node_insert_spilled").unwrap();
-        let disk_manager = FreeSpaceManager::init(&disk);
+        let disk_manager = DiskManager::init(&disk);
         let block1 = disk_manager.allocate().unwrap();
         let block2 = disk_manager.allocate().unwrap();
         const MEMORY_SIZE: usize = 512 * 16;

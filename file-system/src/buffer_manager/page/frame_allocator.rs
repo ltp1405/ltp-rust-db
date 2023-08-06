@@ -3,14 +3,14 @@ pub struct FrameAllocator<'a, const CAPACITY: usize, const PAGE_SIZE: usize> {
 }
 
 impl<'a, const CAPACITY: usize, const PAGE_SIZE: usize> FrameAllocator<'a, CAPACITY, PAGE_SIZE> {
-    fn bytes_required() -> usize {
+    pub fn size() -> usize {
         CAPACITY / 8
     }
 
     pub fn init(memory: &'a [u8]) -> Self {
         let mut allocator = Self { memory };
-        let blocks_needed = Self::bytes_required() / PAGE_SIZE
-            + if Self::bytes_required() % PAGE_SIZE == 0 {
+        let blocks_needed = Self::size() / PAGE_SIZE
+            + if Self::size() % PAGE_SIZE == 0 {
                 0
             } else {
                 1
@@ -24,7 +24,7 @@ impl<'a, const CAPACITY: usize, const PAGE_SIZE: usize> FrameAllocator<'a, CAPAC
     }
 
     pub unsafe fn allocate_frame(&mut self) -> Option<u32> {
-        let bytes_required = Self::bytes_required();
+        let bytes_required = Self::size();
         let bitmap = self.memory[0..bytes_required].as_ptr() as *mut u8;
 
         for i in 0..bytes_required {
@@ -48,7 +48,7 @@ mod tests {
     fn test_allocate_frame() {
         let mut memory = [0u8; 1024];
         let mut allocator = FrameAllocator::<1024, 4096>::init(&mut memory);
-        let bytes_required = FrameAllocator::<1024, 4096>::bytes_required();
+        let bytes_required = FrameAllocator::<1024, 4096>::size();
         let page_for_bitmap =
             bytes_required / 4096 + if bytes_required % 4096 == 0 { 0 } else { 1 };
         assert_eq!(

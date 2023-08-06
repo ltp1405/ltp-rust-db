@@ -1,3 +1,4 @@
+use std::mem::size_of;
 use std::ptr::{slice_from_raw_parts, slice_from_raw_parts_mut};
 
 pub use self::frame_allocator::FrameAllocator;
@@ -14,6 +15,9 @@ struct PageTableEntry {
 }
 
 impl PageTableEntry {
+    fn size() -> usize {
+        size_of::<PageTableEntry>()
+    }
     fn zero() -> Self {
         PageTableEntry { entry: [0; 10] }
     }

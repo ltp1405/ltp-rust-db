@@ -1,11 +1,11 @@
 use buffer_manager::BufferManager;
+use disk_manager::{bitmap::Bitmap, DiskManager};
 use files_table::FilesTable;
-use free_space_manager::{bitmap::Bitmap, FreeSpaceManager};
 use unordered_file::File;
 
 pub mod buffer_manager;
+pub mod disk_manager;
 pub mod files_table;
-pub mod free_space_manager;
 pub mod unordered_file;
 
 pub struct FileSystem<
@@ -16,7 +16,7 @@ pub struct FileSystem<
 > {
     files_table: FilesTable<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
     buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-    disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+    disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
 }
 
 #[derive(Debug)]
@@ -30,19 +30,24 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
 {
     pub fn init(
         buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-        disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
-    ) -> std::io::Result<Self> {
+        disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
+    ) -> std::io::Result<(Self, u32)> {
         let files_table = FilesTable::init(&buffer_manager, &disk_manager);
-        Ok(Self {
-            files_table,
-            buffer_manager,
-            disk_manager,
-        })
+        let files_table_pos = files_table.1;
+        let files_table = files_table.0;
+        Ok((
+            Self {
+                files_table,
+                buffer_manager,
+                disk_manager,
+            },
+            files_table_pos,
+        ))
     }
 
     pub fn open(
         buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-        disk_manager: &'a FreeSpaceManager<BLOCKSIZE, CAPACITY>,
+        disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
     ) -> std::io::Result<Self> {
         let files_table_pos = Bitmap::<BLOCKSIZE, CAPACITY>::size() / BLOCKSIZE
             + if Bitmap::<BLOCKSIZE, CAPACITY>::size() % BLOCKSIZE == 0 {
@@ -62,7 +67,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         &'a self,
         name: &str,
     ) -> Result<File<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>, FileSystemError> {
-        let file = File::init(&self.disk_manager, &self.buffer_manager);
+        let file = File::init(&self.disk_manager, &self.buffer_manager).0;
         println!("file head page number: {}", file.head_page_number);
         self.files_table.add_file(name, file.head_page_number);
         self.save_files_table();
@@ -88,7 +93,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
 
 #[cfg(test)]
 mod tests {
-    use crate::{buffer_manager::BufferManager, free_space_manager::FreeSpaceManager, FileSystem};
+    use crate::{buffer_manager::BufferManager, disk_manager::DiskManager, FileSystem};
 
     #[test]
     fn create_open_file() {
@@ -98,7 +103,7 @@ mod tests {
         const CAPACITY: usize = BLOCKSIZE * 512;
         const MEMORY_CAPACITY: usize = BLOCKSIZE * 32;
         let disk = Disk::create("create_open_file").unwrap();
-        let disk_manager = FreeSpaceManager::init(&disk);
+        let disk_manager = DiskManager::init(&disk);
 
         {
             let memory = [0; MEMORY_CAPACITY];

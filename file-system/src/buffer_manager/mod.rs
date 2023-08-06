@@ -23,11 +23,21 @@ pub struct BufferManager<
 impl<'a, const BLOCK_SIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACITY: usize>
     BufferManager<'a, BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY>
 {
+    pub fn page_table_pages_required() -> usize {
+        10 * (MEMORY_CAPACITY / BLOCK_SIZE) / BLOCK_SIZE
+    }
+
+    pub fn frame_bitmap_pages_required() -> usize {
+        FrameAllocator::<MEMORY_CAPACITY, BLOCK_SIZE>::size()
+    }
+
     pub fn init(memory: &'a [u8], disk: &Disk<BLOCK_SIZE, DISK_CAPACITY>) -> Self {
+        let page_table_size = Self::page_table_pages_required();
         let frame_allocator = Arc::new(Mutex::new(FrameAllocator::init(memory)));
         unsafe {
-            frame_allocator.lock().unwrap().allocate_frame();
-            frame_allocator.lock().unwrap().allocate_frame();
+            for _ in 0..page_table_size / BLOCK_SIZE {
+                frame_allocator.lock().unwrap().allocate_frame();
+            }
         }
         BufferManager {
             frame_allocator,
@@ -68,15 +78,8 @@ impl<'a, const BLOCK_SIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPAC
                     let data = self.disk.read_block(page_number as usize).unwrap();
                     memory_slice.copy_from_slice(data.as_slice());
                 }
-                println!("Allocated frame: {}", frame);
-                println!(
-                    "Mem: {:?}",
-                    &self.memory[frame as usize * BLOCK_SIZE..frame as usize * BLOCK_SIZE + 100]
-                );
                 PageTable::read(&self.memory).map_to_frame(page_number, frame);
                 let page = PageTable::read(&self.memory).get_page(page_number).unwrap();
-                println!("Page: {:?}", &page[..100]);
-                println!("Page: {:?}", page.frame_number);
                 page
             }
         }

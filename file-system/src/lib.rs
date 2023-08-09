@@ -1,5 +1,5 @@
 use buffer_manager::BufferManager;
-use disk_manager::{bitmap::Bitmap, DiskManager};
+use disk_manager::DiskManager;
 use files_table::FilesTable;
 use unordered_file::File;
 
@@ -7,6 +7,7 @@ pub mod buffer_manager;
 pub mod disk_manager;
 pub mod files_table;
 pub mod unordered_file;
+mod frame_allocator;
 
 pub struct FileSystem<
     'a,

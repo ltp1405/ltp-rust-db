@@ -2,11 +2,6 @@ use std::mem::size_of;
 use std::sync::{Arc, Mutex};
 use std::time;
 
-pub use self::frame_allocator::FrameAllocator;
-
-mod frame_allocator;
-mod page;
-
 /// This table map the disk block (in the form of page) to the frame in physical memory
 /// Each entry represent a map from page ---> frame
 #[derive(Clone, Copy)]
@@ -162,7 +157,7 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> PageTable<BLOCKSIZE, CAPACIT
 
 #[cfg(test)]
 mod tests {
-    use crate::buffer_manager::page::PageTableEntry;
+    use crate::buffer_manager::page_table::PageTableEntry;
 
     use super::PageTable;
 

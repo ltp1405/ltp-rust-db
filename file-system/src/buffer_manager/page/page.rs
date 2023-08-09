@@ -8,59 +8,6 @@ use super::PageTable;
 
 pub type Memory<'a> = &'a [u8];
 
-pub struct Page<'a, const PAGE_SIZE: usize> {
-    pub page_number: u32,
-    pub frame_number: u32,
-    memory: Memory<'a>,
-}
-
-impl<'a, const PAGE_SIZE: usize> Page<'a, PAGE_SIZE> {
-    pub fn init(page_number: u32, frame_number: u32, memory: Memory<'a>) -> Self {
-        let frame_number = frame_number as usize;
-        if frame_number * PAGE_SIZE >= memory.len() {
-            panic!("Memory out of bound");
-        }
-        Self {
-            page_number: page_number as u32,
-            frame_number: frame_number as u32,
-            memory,
-        }
-    }
-
-    pub fn buffer(&self) -> &[u8] {
-        let frame_number = self.frame_number as usize;
-        &self.memory[frame_number * PAGE_SIZE..(frame_number + 1) * PAGE_SIZE]
-    }
-
-    pub fn buffer_mut(&self) -> &mut [u8] {
-        let frame_number = self.frame_number as usize;
-        let buffer_ptr = unsafe { self.memory.as_ptr().add(frame_number * PAGE_SIZE) as *mut u8 };
-        let s = slice_from_raw_parts_mut(buffer_ptr, PAGE_SIZE);
-        unsafe { s.as_mut().unwrap() }
-    }
-}
-
-impl<const PAGE_SIZE: usize> Deref for Page<'_, PAGE_SIZE> {
-    type Target = [u8];
-
-    fn deref(&self) -> &Self::Target {
-        self.buffer()
-    }
-}
-
-impl<const PAGE_SIZE: usize> DerefMut for Page<'_, PAGE_SIZE> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        PageTable::read(&self.memory).set_dirty(self.page_number);
-        self.buffer_mut()
-    }
-}
-
-impl<const PAGE_SIZE: usize> Drop for Page<'_, PAGE_SIZE> {
-    fn drop(&mut self) {
-        PageTable::read(&self.memory).drop_page(self.page_number);
-    }
-}
-
 // #[cfg(test)]
 // mod page {
 //     use super::Page;

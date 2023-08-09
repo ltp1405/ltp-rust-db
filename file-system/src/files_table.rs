@@ -22,16 +22,12 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
     pub fn init(
         buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
         disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
-    ) -> (Self, u32) {
+    ) -> Self {
         let file = File::init(disk_manager, buffer_manager);
-        let pos = file.1;
-        (
-            Self {
-                file: file.0,
-                disk_manager: disk_manager.clone(),
-            },
-            file.1,
-        )
+        Self {
+            file,
+            disk_manager: disk_manager.clone(),
+        }
     }
 
     pub fn open(
@@ -93,8 +89,8 @@ mod tests {
             let files_table = FilesTable::<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>::init(
                 &buffer_manager,
                 &disk_manager,
-            ).0;
-            let file = File::init(&disk_manager, &buffer_manager).0;
+            );
+            let file = File::init(&disk_manager, &buffer_manager);
             file.insert(Cell::new("test".as_bytes().to_vec()));
             file.insert(Cell::new("test".as_bytes().to_vec()));
             file.insert(Cell::new("test".as_bytes().to_vec()));
@@ -105,7 +101,7 @@ mod tests {
             assert_eq!(files_table.search_file("test2"), Some(2));
             assert_eq!(files_table.search_file("test3"), Some(3));
             assert_eq!(files_table.search_file("test4"), None);
-            files_table.file.save();
+            files_table.save();
         }
         {
             let memory = [0; MEMORY_CAPACITY];
@@ -136,7 +132,7 @@ mod tests {
             let files_table = FilesTable::<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>::init(
                 &buffer_manager,
                 &disk_manager,
-            ).0;
+            );
             files_table.add_file("test", 1);
             files_table.add_file("test2", 2);
             files_table.add_file("test3", 3);
@@ -144,7 +140,7 @@ mod tests {
             assert_eq!(files_table.search_file("test2"), Some(2));
             assert_eq!(files_table.search_file("test3"), Some(3));
             assert_eq!(files_table.search_file("test4"), None);
-            files_table.file.save();
+            files_table.save();
         }
         {
             let memory = [0; MEMORY_CAPACITY];

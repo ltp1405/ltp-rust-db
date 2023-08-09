@@ -21,7 +21,7 @@ pub struct Node<
     const MEMORY_CAPACITY: usize,
 > {
     pub is_head: bool,
-    pub page: Page<'a, BLOCKSIZE>,
+    pub page: Page<'a, BLOCKSIZE, DISK_CAPACITY, MEMORY_CAPACITY>,
 }
 
 #[derive(Debug)]
@@ -37,11 +37,11 @@ pub enum ReadResult {
 impl<'a, const BLOCKSIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACITY: usize>
     Node<'a, BLOCKSIZE, DISK_CAPACITY, MEMORY_CAPACITY>
 {
-    pub fn from_page(is_head: bool, page: Page<'a, BLOCKSIZE>) -> Self {
+    pub fn from_page(is_head: bool, page: Page<'a, BLOCKSIZE, DISK_CAPACITY, MEMORY_CAPACITY>) -> Self {
         Self { is_head, page }
     }
 
-    pub fn new(is_head: bool, mut page: Page<'a, BLOCKSIZE>) -> Self {
+    pub fn new(is_head: bool, mut page: Page<'a, BLOCKSIZE, DISK_CAPACITY, MEMORY_CAPACITY>) -> Self {
         let header_size = if is_head {
             FileNodeHeader::size() + FileHeader::size()
         } else {

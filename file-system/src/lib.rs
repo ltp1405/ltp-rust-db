@@ -31,30 +31,19 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
     pub fn init(
         buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
         disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
-    ) -> std::io::Result<(Self, u32)> {
+    ) -> std::io::Result<Self> {
         let files_table = FilesTable::init(&buffer_manager, &disk_manager);
-        let files_table_pos = files_table.1;
-        let files_table = files_table.0;
-        Ok((
-            Self {
-                files_table,
-                buffer_manager,
-                disk_manager,
-            },
-            files_table_pos,
-        ))
+        Ok(Self {
+            files_table,
+            buffer_manager,
+            disk_manager,
+        })
     }
 
     pub fn open(
         buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
         disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
     ) -> std::io::Result<Self> {
-        let files_table_pos = Bitmap::<BLOCKSIZE, CAPACITY>::size() / BLOCKSIZE
-            + if Bitmap::<BLOCKSIZE, CAPACITY>::size() % BLOCKSIZE == 0 {
-                0
-            } else {
-                1
-            };
         let files_table = FilesTable::open(&buffer_manager, &disk_manager, 1);
         Ok(Self {
             files_table,
@@ -67,7 +56,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         &'a self,
         name: &str,
     ) -> Result<File<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>, FileSystemError> {
-        let file = File::init(&self.disk_manager, &self.buffer_manager).0;
+        let file = File::init(&self.disk_manager, &self.buffer_manager);
         println!("file head page number: {}", file.head_page_number);
         self.files_table.add_file(name, file.head_page_number);
         self.save_files_table();

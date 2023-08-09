@@ -28,29 +28,26 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
     pub fn init(
         disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
         buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-    ) -> (Self, u32) {
+    ) -> Self {
         let new_page_number = disk_manager.allocate().unwrap();
-        let new_page = buffer_manager.get_page(new_page_number);
+        let mut new_page = buffer_manager.get_page(new_page_number);
         let file_header = FileHeader {
             cell_count: 0,
             tail_page_num: new_page_number as u32,
             head_page_num: new_page_number as u32,
         };
-        file_header.write_to(new_page.buffer_mut());
+        file_header.write_to(&mut new_page);
 
         let page_header = FileNodeHeader {
             free_space_start: (FileNodeHeader::size() + FileHeader::size()) as u32,
             next: 0,
         };
-        page_header.write_to(true, new_page.buffer_mut());
-        (
-            File {
-                disk_manager,
-                buffer_manager,
-                head_page_number: new_page_number,
-            },
-            new_page_number,
-        )
+        page_header.write_to(true, &mut new_page);
+        File {
+            disk_manager,
+            buffer_manager,
+            head_page_number: new_page_number,
+        }
     }
 
     pub fn open(
@@ -159,8 +156,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
             let next_page = self.buffer_manager.get_page(next);
             let next_node: Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
                 Node::from_page(false, next_page);
-            self.buffer_manager.save_page(next).unwrap();
             next_page_num = next_node.next();
+            drop(next_node);
+            self.buffer_manager.save_page(next).unwrap();
         }
     }
 }
@@ -181,7 +179,7 @@ mod tests {
             let memory = [0; MEMORY_CAPACITY];
             let buffer_manager: BufferManager<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
                 BufferManager::init(&memory, &disk);
-            let file = File::init(&disk_manager, &buffer_manager).0;
+            let file = File::init(&disk_manager, &buffer_manager);
             let record = Cell::new(vec![1, 2, 3]);
             file.insert(record);
             let cell = file.cursor().next().unwrap();

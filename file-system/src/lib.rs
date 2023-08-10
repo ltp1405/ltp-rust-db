@@ -3,6 +3,7 @@ use disk_manager::DiskManager;
 use files_table::FilesTable;
 use unordered_file::File;
 
+mod btree_index;
 pub mod buffer_manager;
 pub mod disk_manager;
 pub mod files_table;

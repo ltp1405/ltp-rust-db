@@ -3,8 +3,6 @@ pub mod cursor;
 mod header;
 mod node;
 
-use disk::Disk;
-
 use crate::{buffer_manager::BufferManager, disk_manager::DiskManager};
 
 pub use cell::Cell;
@@ -157,7 +155,6 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
             let next_node: Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
                 Node::from_page(false, next_page);
             next_page_num = next_node.next();
-            drop(next_node);
             self.buffer_manager.save_page(next).unwrap();
         }
     }
@@ -166,6 +163,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
 #[cfg(test)]
 mod tests {
     use super::*;
+    use disk::Disk;
 
     #[test]
     fn simple_read() {

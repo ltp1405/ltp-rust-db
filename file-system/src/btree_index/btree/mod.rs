@@ -2,8 +2,6 @@ mod node;
 
 use std::sync::{Arc, Mutex};
 
-use node::Node;
-
 // pub struct BTree {
 //     root: Node,
 // }

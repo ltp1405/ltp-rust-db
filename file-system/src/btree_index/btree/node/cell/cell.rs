@@ -1,10 +1,6 @@
 use crate::btree_index::btree::node::node_header::NodePointer;
-use crate::buffer_manager::Page;
 use std::fmt::Debug;
-use std::fmt::Display;
 
-use super::cell_header::CellHeaderReader;
-use super::cell_header::CellHeaderWriter;
 use super::cell_header::PayloadSize;
 
 pub struct CellData((u32, Vec<u8>));
@@ -12,7 +8,7 @@ pub struct CellData((u32, Vec<u8>));
 impl Debug for Cell {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::TableLeaf(_page, _offset) => f
+            Self::Leaf(start) => f
                 .debug_struct("Cell::TableLeaf")
                 .field("Key", &self.key())
                 .field("Size", &self.cell_size())
@@ -20,7 +16,7 @@ impl Debug for Cell {
                 .field("Kept Payload Size", &self.kept_payload().len())
                 .field("Overflow Head", &self.overflow_page_head())
                 .finish(),
-            Self::TableInterior(_page, _offset) => f
+            Self::Interior(start) => f
                 .debug_struct("Cell::TableInterior")
                 .field("Key", &self.key())
                 .field("child", &self.child())
@@ -31,16 +27,16 @@ impl Debug for Cell {
 }
 
 /// A key-value pair stored in a page
-pub enum Cell {
-    Interior(*const u8),
-    Leaf(*const u8),
+pub enum Cell<'a> {
+    Interior(&'a [u8]),
+    Leaf(&'a [u8]),
 }
 
-impl Cell {
+impl<'a> Cell<'a> {
     pub unsafe fn leaf_at(start: *const u8) -> Self {
         Self::Leaf(start)
     }
-    
+
     pub unsafe fn interior_at(start: *const u8) -> Self {
         Self::Interior(start)
     }
@@ -98,7 +94,7 @@ impl Cell {
     pub fn set_child(&self, child: NodePointer) {
         match self {
             Self::Interior(start) => unsafe {
-                CellHeaderWriter::new(start).set_child(child);
+                CellHeaderWriter::new(*start as *mut u8).set_child(child);
             },
             _ => todo!(),
         }
@@ -111,6 +107,12 @@ impl Cell {
     }
 
     pub fn key(&self) -> u32 {
+        match self {
+            _ => todo!(),
+        }
+    }
+
+    pub fn set_key(&self, key: u32) {
         match self {
             _ => todo!(),
         }
@@ -148,29 +150,20 @@ mod tests {
 
     #[test]
     fn simple_leaf_cell() {
-        let payload: Vec<u8> = vec![1, 2, 3];
-        let mut pager = PAGER.lock().unwrap();
-        let page = pager.get_page(0).unwrap();
-        let cell = Cell::insert_table_leaf(&page, PAGE_SIZE, 12, 3, None, &payload);
-        assert_eq!(cell.key(), 12);
-        assert_eq!(cell.payload_size(), 3);
-        assert_eq!(cell.cell_size() as usize, cell.header_size() + 3);
-        assert_eq!(cell.kept_payload(), &[1, 2, 3]);
-        let cell2 = Cell::leaf_at(&page, PAGE_SIZE - cell.cell_size() as usize);
-        println!("{:#?}", cell2);
-        assert_eq!(cell2.payload_size() as usize, payload.len());
-        assert_eq!(cell2.kept_payload(), payload);
-        assert_eq!(cell2.key(), 12);
+        let buffer = [0; 4096];
+        let mut cell = unsafe { Cell::leaf_at(buffer.as_ptr()) };
+        cell.set_key(123);
+        assert_eq!(cell.key(), 123);
     }
 
     #[test]
     fn simple_interior_cell() {
-        let mut pager = PAGER.lock().unwrap();
-        let page = pager.get_page(0).unwrap();
-        let cell = Cell::insert_table_interior(&page, PAGE_SIZE, 12, 3);
+        let buffer = [0; 4096];
+        let cell = unsafe { Cell::interior_at(buffer.as_ptr()) };
+        cell.set_key(12);
+        cell.set_child(3);
         assert_eq!(cell.key(), 12);
-        let cell2 = Cell::interior_at(&page, PAGE_SIZE - cell.cell_size() as usize);
-        println!("{:#?}", cell2);
+        let cell2 = unsafe { Cell::interior_at(buffer.as_ptr().add(2048)) };
         assert_eq!(cell2.key(), 12);
         assert_eq!(cell2.child(), 3);
     }

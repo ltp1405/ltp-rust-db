@@ -1,5 +1,7 @@
 use std::mem::size_of;
 
+use crate::buffer_manager::Page;
+
 pub type LeafNodeKey = u32;
 pub type NodePointer = u32;
 pub type CellsCount = u32;
@@ -44,7 +46,7 @@ impl NodeHeaderReader {
         unsafe { *(self.start.add(NODE_TYPE.0) as *const NodeType) }
     }
 
-    pub fn cell_nums(&self) -> CellsCount {
+    pub fn num_cells(&self) -> CellsCount {
         unsafe { *(self.start.add(CELL_NUMS.0) as *const CellsCount) }
     }
 
@@ -52,7 +54,15 @@ impl NodeHeaderReader {
         unsafe { *(self.start.add(CELL_CONTENT_START.0) as *const u32) }
     }
 
-    pub fn right_most_child_pointer(&self) -> NodePointer {
+    pub fn cell_pointer_offset(&self, cell_idx: u32) -> usize {
+        CELL_POINTERS_ARRAY_OFFSET + (cell_idx as usize) * CELL_POINTER_SIZE
+    }
+
+    pub fn cell_point(&self, idx: u32) -> CellPointer {
+        unsafe { *(self.start.add(self.cell_pointer_offset(idx)) as *const CellPointer) }
+    }
+
+    pub fn right_most_child(&self) -> NodePointer {
         unsafe { *(self.start.add(RIGHT_MOST_CHILD_POINTER.0) as *const NodePointer) }
     }
 
@@ -70,13 +80,17 @@ impl NodeHeaderWriter {
         Self { start }
     }
 
+    fn cell_pointer_offset(&self, cell_idx: u32) -> usize {
+        CELL_POINTERS_ARRAY_OFFSET + (cell_idx as usize) * CELL_POINTER_SIZE
+    }
+
     pub fn set_node_type(&mut self, node_type: NodeType) {
         unsafe {
             *(self.start.add(NODE_TYPE.0) as *mut NodeType) = node_type;
         }
     }
 
-    pub fn set_cell_nums(&mut self, cell_nums: CellsCount) {
+    pub fn set_num_cells(&mut self, cell_nums: CellsCount) {
         unsafe {
             *(self.start.add(CELL_NUMS.0) as *mut CellsCount) = cell_nums;
         }
@@ -88,7 +102,13 @@ impl NodeHeaderWriter {
         }
     }
 
-    pub fn set_right_most_child_pointer(&mut self, right_most_child_pointer: NodePointer) {
+    pub fn set_cell_pointer(&mut self, idx: u32, cell_pointer: CellPointer) {
+        unsafe {
+            *(self.start.add(self.cell_pointer_offset(idx)) as *mut CellPointer) = cell_pointer;
+        }
+    }
+
+    pub fn set_right_most_child(&mut self, right_most_child_pointer: NodePointer) {
         unsafe {
             *(self.start.add(RIGHT_MOST_CHILD_POINTER.0) as *mut NodePointer) =
                 right_most_child_pointer;

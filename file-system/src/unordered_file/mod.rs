@@ -155,6 +155,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
             let next_node: Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
                 Node::from_page(false, next_page);
             next_page_num = next_node.next();
+            drop(next_node);
             self.buffer_manager.save_page(next).unwrap();
         }
     }

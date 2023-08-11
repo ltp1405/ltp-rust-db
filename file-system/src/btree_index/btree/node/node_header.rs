@@ -6,7 +6,8 @@ pub type LeafNodeKey = u32;
 pub type NodePointer = u32;
 pub type CellsCount = u32;
 pub type CellPointerArray = u32;
-pub type CellPointer = u32;
+pub type CellPointer = u16;
+pub type CellSize = u16;
 pub type CellContentOffset = u32;
 
 /// Common Node Header Layout
@@ -29,8 +30,25 @@ const CELL_POINTER_SIZE: usize = size_of::<CellPointer>();
 #[derive(Debug, PartialEq, Copy, Clone)]
 #[non_exhaustive]
 pub enum NodeType {
-    Interior = 0x2,
-    Leaf = 0x5,
+    Interior,
+    Leaf,
+}
+
+impl NodeType {
+    pub fn from_u8(byte: u8) -> Self {
+        match byte {
+            0 => Self::Interior,
+            1 => Self::Leaf,
+            _ => panic!("Invalid node type byte: {}", byte),
+        }
+    }
+
+    pub fn to_u8(&self) -> u8 {
+        match self {
+            Self::Interior => 0,
+            Self::Leaf => 1,
+        }
+    }
 }
 
 pub struct NodeHeaderReader {
@@ -43,7 +61,7 @@ impl NodeHeaderReader {
     }
 
     pub fn node_type(&self) -> NodeType {
-        unsafe { *(self.start.add(NODE_TYPE.0) as *const NodeType) }
+        NodeType::from_u8(unsafe { *(self.start.add(NODE_TYPE.0)) })
     }
 
     pub fn num_cells(&self) -> CellsCount {
@@ -51,15 +69,26 @@ impl NodeHeaderReader {
     }
 
     pub fn cell_content_start(&self) -> CellContentOffset {
-        unsafe { *(self.start.add(CELL_CONTENT_START.0) as *const u32) }
+        todo!()
+    }
+
+    fn cell_pointers_array_start(&self) -> *const u8 {
+        unsafe { self.start.add(CELL_POINTERS_ARRAY_OFFSET) }
     }
 
     pub fn cell_pointer_offset(&self, cell_idx: u32) -> usize {
         CELL_POINTERS_ARRAY_OFFSET + (cell_idx as usize) * CELL_POINTER_SIZE
     }
 
-    pub fn cell_point(&self, idx: u32) -> CellPointer {
-        unsafe { *(self.start.add(self.cell_pointer_offset(idx)) as *const CellPointer) }
+    pub fn cell_pointer_and_size(&self, idx: u32) -> (CellPointer, CellSize) {
+        let cell_pointer =
+            unsafe { *(self.cell_pointers_array_start().add(idx as usize) as *const CellPointer) };
+        let cell_size = unsafe {
+            *(self
+                .cell_pointers_array_start()
+                .add(idx as usize + size_of::<CellPointer>()) as *const CellSize)
+        };
+        (cell_pointer, cell_size)
     }
 
     pub fn right_most_child(&self) -> NodePointer {
@@ -86,7 +115,7 @@ impl NodeHeaderWriter {
 
     pub fn set_node_type(&mut self, node_type: NodeType) {
         unsafe {
-            *(self.start.add(NODE_TYPE.0) as *mut NodeType) = node_type;
+            *(self.start.add(NODE_TYPE.0) as *mut u8) = node_type.to_u8();
         }
     }
 

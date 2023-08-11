@@ -5,6 +5,10 @@ const KEY_SIZE: (usize, usize) = (0, size_of::<u32>());
 /// (<offset>, <size>)
 const PAYLOAD_START: usize = KEY_SIZE.0 + KEY_SIZE.1;
 
+fn static_header_size() -> usize {
+    KEY_SIZE.1
+}
+
 pub use reader::InteriorCellReader;
 pub use writer::InteriorCellWriter;
 mod reader {
@@ -45,7 +49,7 @@ mod reader {
             }
             let key_size = self.key_size();
             let cell_size = self.cell_size();
-            let payload = &self.0[PAYLOAD_START..cell_size - Self::static_header_size()];
+            let payload = &self.0[PAYLOAD_START..cell_size - size_of::<u32>()];
             let overflow_page_head = &self.0[cell_size - size_of::<u32>()..cell_size];
             let overflow_page_head = u32::from_be_bytes([
                 overflow_page_head[0],
@@ -65,7 +69,7 @@ mod reader {
                 return None;
             }
             let cell_size = self.cell_size();
-            let head = &self.0[cell_size - Self::static_header_size()..];
+            let head = &self.0[cell_size - size_of::<u32>()..];
             let head = u32::from_be_bytes([head[0], head[1], head[2], head[3]]);
             Some(head)
         }
@@ -77,7 +81,7 @@ mod writer {
 
     use crate::btree_index::btree::node::cell::PayloadWriteResult;
 
-    use super::KEY_SIZE;
+    use super::{InteriorCellReader, KEY_SIZE, PAYLOAD_START};
 
     pub struct InteriorCellWriter<'a>(&'a mut [u8]);
 
@@ -86,30 +90,22 @@ mod writer {
             Self(cell_buffer)
         }
 
-        pub(super) fn static_header_size() -> usize {
-            KEY_SIZE.1
-        }
-
-        fn payload_start() -> usize {
-            KEY_SIZE.0 + KEY_SIZE.1
-        }
-
         pub fn write_key(&mut self, key: &'a [u8]) -> PayloadWriteResult<'a> {
             let key_size = key.len();
-            if key_size + Self::static_header_size() > self.0.len() {
+            if key_size + super::static_header_size() > self.0.len() {
                 // key is too large to fit in this cell
                 let cell_size = self.cell_size();
                 self.set_key_size(key.len());
                 // last 4 bytes are reserved for overflow page head
-                let split_point = cell_size - size_of::<u32>() - Self::static_header_size();
-                self.0[Self::payload_start()..cell_size - size_of::<u32>()]
+                let split_point = cell_size - size_of::<u32>() - super::static_header_size();
+                self.0[PAYLOAD_START..cell_size - size_of::<u32>()]
                     .copy_from_slice(&key[..split_point]);
                 return PayloadWriteResult::InOverflow {
                     remain_payload: &key[split_point..],
                 };
             }
             self.set_key_size(key_size);
-            self.0[Self::payload_start()..].copy_from_slice(key);
+            self.0[PAYLOAD_START..].copy_from_slice(key);
             PayloadWriteResult::InPage
         }
 
@@ -124,12 +120,16 @@ mod writer {
         }
 
         pub fn set_overflow_page_head(&mut self, overflow_page_head: Option<u32>) {
+            if unsafe { !InteriorCellReader::new(self.0).have_overflow() }
+                && !overflow_page_head.is_none()
+            {
+                panic!("overflow page head can only be set on a cell without overflow");
+            }
             let cell_size = self.cell_size();
             if let Some(head) = overflow_page_head {
                 let head = head.to_be_bytes();
                 self.0[cell_size - 4..cell_size].copy_from_slice(&head);
             } else {
-                self.set_key_size(cell_size - 4);
             }
         }
     }
@@ -184,7 +184,7 @@ mod tests {
             cell.key(),
             PayloadReadResult::InOverflow {
                 payload_len: 100,
-                partial_payload: &[0xe; 64 - 4],
+                partial_payload: &[0xe; 64 - 4 - 4],
                 overflow_page_head: 0x12345678,
             }
         );

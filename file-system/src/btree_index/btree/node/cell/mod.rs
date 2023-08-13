@@ -1,6 +1,7 @@
-// mod cell;
-mod interior_cell;
-mod leaf_cell;
+mod cell;
+
+pub use cell::Cell;
+pub use cell::CellMut;
 
 #[derive(Debug, PartialEq)]
 pub enum PayloadReadResult<'a> {
@@ -19,5 +20,3 @@ pub enum PayloadWriteResult<'a> {
     InPage,
     InOverflow { remain_payload: &'a [u8] },
 }
-
-// pub use cell::Cell;

@@ -4,11 +4,15 @@ mod leaf_header {
     use std::mem::size_of;
 
     pub const fn static_header_size() -> usize {
-        KEY_SIZE.1
+        KEY_SIZE.1 + PAGE_NUMBER.1 + RECORD_OFFSET.1
     }
 
     /// (<offset>, <size>)
     pub const KEY_SIZE: (usize, usize) = (0, size_of::<u32>());
+    /// (<offset>, <size>)
+    pub const PAGE_NUMBER: (usize, usize) = (KEY_SIZE.0 + KEY_SIZE.1, size_of::<u32>());
+    /// (<offset>, <size>)
+    pub const RECORD_OFFSET: (usize, usize) = (PAGE_NUMBER.0 + PAGE_NUMBER.1, size_of::<u32>());
     /// (<offset>, <size>)
     pub const PAYLOAD_START: usize = KEY_SIZE.0 + KEY_SIZE.1;
 }
@@ -33,7 +37,7 @@ pub use cell_mut::CellMut;
 mod cell {
     use std::{fmt::Debug, mem::size_of};
 
-    use crate::btree_index::btree::node::cell::PayloadReadResult;
+    use crate::btree_index::btree::{node::cell::PayloadReadResult, RowAddress};
 
     use super::{interior_header, leaf_header};
 
@@ -69,6 +73,14 @@ mod cell {
             Self::Leaf(allocated_buffer)
         }
 
+        pub const fn leaf_header_size() -> usize {
+            leaf_header::static_header_size()
+        }
+
+        pub const fn interior_header_size() -> usize {
+            interior_header::static_header_size()
+        }
+
         pub unsafe fn interior(allocated_buffer: &'a [u8]) -> Self {
             Self::Interior(allocated_buffer)
         }
@@ -88,6 +100,23 @@ mod cell {
                 Self::Interior(b) => unsafe {
                     *(b.as_ptr().add(interior_header::KEY_SIZE.0) as *const u32) as usize
                 },
+            }
+        }
+
+        pub fn row_address(&self) -> RowAddress {
+            match self {
+                Self::Leaf(b) => {
+                    let page_number =
+                        unsafe { *(b.as_ptr().add(leaf_header::PAGE_NUMBER.0) as *const [u8; 4]) };
+                    let record_offset = unsafe {
+                        *(b.as_ptr().add(leaf_header::RECORD_OFFSET.0) as *const [u8; 4])
+                    };
+                    RowAddress {
+                        page_number: u32::from_le_bytes(page_number),
+                        offset: u32::from_le_bytes(record_offset),
+                    }
+                }
+                Self::Interior(_) => panic!("Interior node does not have row address"),
             }
         }
 
@@ -154,6 +183,7 @@ mod cell_mut {
 
     use crate::btree_index::btree::node::cell::{PayloadReadResult, PayloadWriteResult};
     use crate::btree_index::btree::node::node_header::NodePointer;
+    use crate::btree_index::btree::RowAddress;
 
     use super::interior_header;
     use super::leaf_header;
@@ -189,6 +219,26 @@ mod cell_mut {
             match self {
                 Self::Leaf(_) => panic!("Leaf node does not have child pointer"),
                 Self::Interior(b) => unsafe {},
+            }
+        }
+
+        pub fn row_address(&self) -> RowAddress {
+            self.cell().row_address()
+        }
+
+        pub fn set_row_address(&mut self, row_address: RowAddress) {
+            match self {
+                Self::Leaf(b) => {
+                    b[leaf_header::PAGE_NUMBER.0
+                        ..leaf_header::PAGE_NUMBER.0 + leaf_header::PAGE_NUMBER.1]
+                        .copy_from_slice(&row_address.page_number.to_be_bytes());
+                    b[leaf_header::RECORD_OFFSET.0
+                        ..leaf_header::RECORD_OFFSET.0 + leaf_header::RECORD_OFFSET.1]
+                        .copy_from_slice(&row_address.offset.to_be_bytes());
+                }
+                Self::Interior(b) => {
+                    panic!("Interior node does not have row address")
+                }
             }
         }
 

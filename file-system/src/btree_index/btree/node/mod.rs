@@ -16,6 +16,8 @@ use std::{
 use self::cell::{Cell, CellMut};
 use self::node_header::*;
 
+use super::RowAddress;
+
 /// Each node of the btree is contained inside 1 page
 pub struct Node<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize> {
     page_number: u32,
@@ -27,7 +29,6 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
     for Node<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>
 {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let page = self.page();
         match self.node_type() {
             NodeType::Leaf => {
                 let mut cells = Vec::new();
@@ -240,100 +241,98 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         self.set_cell_pointer_and_size(hole, pointer, size);
     }
 
-    // /// Insert a payload into a leaf node
-    // /// Return a normal node if insert normally
-    // /// Return a pair of node if need split
-    // fn leaf_insert(
-    //     mut self,
-    //     key: u32,
-    //     payload: &[u8],
-    //     overflow_head: Option<NodePointer>,
-    // ) -> InsertResult<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> {
-    //     match self.insert_decision(payload.len()) {
-    //         InsertDecision::Normal => {
-    //             let hole = self.search(key);
-    //             let hole = match hole {
-    //                 Slot::Hole(hole) => hole,
-    //                 Slot::Cell(_cell) => panic!(),
-    //             };
-    //             let cell_start = self.cell_content_start();
-    //             let page = self.page();
-    //             let cell = Cell::insert_table_leaf(
-    //                 &page,
-    //                 cell_start as usize,
-    //                 key,
-    //                 payload.len() as u32,
-    //                 overflow_head,
-    //                 &payload,
-    //             );
-    //             let cell_start = cell_start - (cell.header_size() as u32) - payload.len() as u32;
-    //             self.set_cell_content_start(cell_start);
-    //             self.insert_cell_pointer(hole, cell_start as u32);
-    //             InsertResult::Normal(self)
-    //         }
-    //         InsertDecision::Overflow(kept_size) => {
-    //             todo!();
-    //             let hole = self.search(key);
-    //             let hole = match hole {
-    //                 Slot::Hole(hole) => hole,
-    //                 Slot::Cell(_cell) => panic!(),
-    //             };
-    //             let page = self.page();
-    //             let payload_len = payload.len();
-    //             let (non_overflow, overflow) = payload.split_at(kept_size);
-    //             let cell_start = self.cell_content_start();
-    //             let new_page = self.disk_manager.allocate().unwrap();
-    //             let cell = Cell::insert_table_leaf(
-    //                 &page,
-    //                 cell_start as usize,
-    //                 key,
-    //                 payload_len as u32,
-    //                 Some(new_page as u32),
-    //                 non_overflow,
-    //             );
-    //             // TODO: Handle remain payload
-    //             let cell_start = cell_start - (cell.header_size() as u32) - payload.len() as u32;
-    //             self.set_cell_content_start(cell_start);
-    //             self.insert_cell_pointer(hole, cell_start as u32);
-    //             InsertResult::Normal(self)
-    //         }
-    //         InsertDecision::Split => {
-    //             let page = self.page();
-    //             let mut new_node = Node::new(self.buffer_manager, self.disk_manager);
-    //             new_node.set_node_type(NodeType::Leaf);
-    //             let mid = self.num_cells() / 2;
-    //             for i in mid..self.num_cells() {
-    //                 let cell = self.cell_at(i);
-    //                 new_node = if let InsertResult::Normal(node) = new_node.leaf_insert(
-    //                     cell.key(),
-    //                     cell.kept_payload(),
-    //                     cell.overflow_page_head(),
-    //                 ) {
-    //                     node
-    //                 } else {
-    //                     unreachable!()
-    //                 };
-    //             }
-    //             // TODO: Handle hole after split
-    //             let cell_bound = self.cell_bound(mid);
-    //             let mid_key = self.cell_at(mid).key();
-    //             self.set_num_cells(mid);
+    /// Insert a payload into a leaf node
+    /// Return a normal node if insert normally
+    /// Return a pair of node if need split
+    fn leaf_insert(
+        mut self,
+        key: &[u8],
+        row_address: RowAddress,
+        overflow_head: Option<NodePointer>,
+    ) -> InsertResult<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> {
+        match self.insert_decision(key.len()) {
+            InsertDecision::Normal => {
+                let hole = self.search(key);
+                let hole = match hole {
+                    Slot::Hole(hole) => hole,
+                    Slot::Cell(_cell) => panic!(),
+                };
+                let cell_start = self.cell_content_start();
+                let allocated_size = Cell::leaf_header_size() + key.len();
+                self.insert_cell_pointer(hole, cell_start as u16, allocated_size as u16);
+                let mut cell = self.cell_mut_at(hole);
+                cell.write_key(key);
+                cell.set_row_address(row_address);
+                cell.set_overflow_page_head(overflow_head);
+                let cell_start =
+                    cell_start as u32 - (cell.header_size() as u32) - key.len() as u32;
+                self.set_cell_content_start(cell_start as u16);
+                InsertResult::Normal(self)
+            }
+            InsertDecision::Overflow(kept_size) => {
+                todo!();
+                // let hole = self.search(key);
+                // let hole = match hole {
+                //     Slot::Hole(hole) => hole,
+                //     Slot::Cell(_cell) => panic!(),
+                // };
+                // let page = self.page();
+                // let payload_len = payload.len();
+                // let (non_overflow, overflow) = payload.split_at(kept_size);
+                // let cell_start = self.cell_content_start();
+                // let new_page = self.disk_manager.allocate().unwrap();
+                // let cell = Cell::insert_table_leaf(
+                //     &page,
+                //     cell_start as usize,
+                //     key,
+                //     payload_len as u32,
+                //     Some(new_page as u32),
+                //     non_overflow,
+                // );
+                // // TODO: Handle remain payload
+                // let cell_start = cell_start - (cell.header_size() as u32) - payload.len() as u32;
+                // self.set_cell_content_start(cell_start);
+                // self.insert_cell_pointer(hole, cell_start as u32);
+                // InsertResult::Normal(self)
+            }
+            InsertDecision::Split => {
+                todo!();
+                // let page = self.page();
+                // let mut new_node = Node::new(self.buffer_manager, self.disk_manager);
+                // new_node.set_node_type(NodeType::Leaf);
+                // let mid = self.num_cells() / 2;
+                // for i in mid..self.num_cells() {
+                //     let cell = self.cell_at(i);
+                //     new_node = if let InsertResult::Normal(node) = new_node.leaf_insert(
+                //         cell.key(),
+                //         cell.kept_payload(),
+                //         cell.overflow_page_head(),
+                //     ) {
+                //         node
+                //     } else {
+                //         unreachable!()
+                //     };
+                // }
+                // // TODO: Handle hole after split
+                // let cell_bound = self.cell_bound(mid);
+                // let mid_key = self.cell_at(mid).key();
+                // self.set_num_cells(mid);
 
-    //             if key >= mid_key {
-    //                 new_node = match new_node.leaf_insert(key, payload, overflow_head) {
-    //                     InsertResult::Normal(node) => node,
-    //                     _ => unreachable!("Maybe overflow calculation go wrong"),
-    //                 }
-    //             } else {
-    //                 self = match self.leaf_insert(key, payload, overflow_head) {
-    //                     InsertResult::Normal(node) => node,
-    //                     _ => unreachable!("Maybe overflow calculation go wrong"),
-    //                 }
-    //             };
-    //             InsertResult::Splitted(mid_key, self, new_node)
-    //         }
-    //     }
-    // }
+                // if key >= mid_key {
+                //     new_node = match new_node.leaf_insert(key, payload, overflow_head) {
+                //         InsertResult::Normal(node) => node,
+                //         _ => unreachable!("Maybe overflow calculation go wrong"),
+                //     }
+                // } else {
+                //     self = match self.leaf_insert(key, payload, overflow_head) {
+                //         InsertResult::Normal(node) => node,
+                //         _ => unreachable!("Maybe overflow calculation go wrong"),
+                //     }
+                // };
+                // InsertResult::Splitted(mid_key, self, new_node)
+            }
+        }
+    }
 
     pub fn cell_at(&self, cell_num: u32) -> Cell {
         let page = self.page();

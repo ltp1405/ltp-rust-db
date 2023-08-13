@@ -1,9 +1,10 @@
 use crate::{
-    btree_index::btree::node::node_header::NodeType, buffer_manager::BufferManager,
+    btree_index::btree::{node::node_header::NodeType, RowAddress},
+    buffer_manager::BufferManager,
     disk_manager::DiskManager,
 };
 
-use super::Node;
+use super::{InsertResult, Node};
 
 fn create_leaf_node_samples<
     'a,
@@ -18,7 +19,7 @@ fn create_leaf_node_samples<
     let mut children = Vec::new();
     for i in 0..sample_size {
         let mut node = Node::new(NodeType::Leaf, buffer_manager, disk_manager);
-        let node = node.leaf_insert(i as u32, &[1, 2, 3], None);
+        let node = node.leaf_insert(&i.to_be_bytes(), RowAddress::new(0, 0), None);
         match node {
             InsertResult::Normal(node) => {
                 println!("{:#?}", node);

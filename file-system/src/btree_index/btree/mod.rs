@@ -2,6 +2,21 @@ mod node;
 
 use std::sync::{Arc, Mutex};
 
+pub struct RowAddress {
+    page_number: u32,
+    offset: u32,
+}
+
+impl RowAddress {
+    pub fn new(page_number: u32, offset: u32) -> Self {
+        Self {
+            page_number,
+            offset,
+        }
+    }
+}
+
+
 // pub struct BTree {
 //     root: Node,
 // }

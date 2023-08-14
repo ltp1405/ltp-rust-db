@@ -3,22 +3,26 @@ type KeySize = u16;
 mod leaf_header {
     use std::mem::size_of;
 
+    use super::KeySize;
+
     pub const fn static_header_size() -> usize {
         KEY_SIZE.1 + PAGE_NUMBER.1 + RECORD_OFFSET.1
     }
 
     /// (<offset>, <size>)
-    pub const KEY_SIZE: (usize, usize) = (0, size_of::<u32>());
+    pub const KEY_SIZE: (usize, usize) = (0, size_of::<KeySize>());
     /// (<offset>, <size>)
     pub const PAGE_NUMBER: (usize, usize) = (KEY_SIZE.0 + KEY_SIZE.1, size_of::<u32>());
     /// (<offset>, <size>)
     pub const RECORD_OFFSET: (usize, usize) = (PAGE_NUMBER.0 + PAGE_NUMBER.1, size_of::<u32>());
     /// (<offset>, <size>)
-    pub const PAYLOAD_START: usize = KEY_SIZE.0 + KEY_SIZE.1;
+    pub const PAYLOAD_START: usize = RECORD_OFFSET.0 + RECORD_OFFSET.1;
 }
 
 mod interior_header {
     use std::mem::size_of;
+
+    use super::KeySize;
     pub const fn static_header_size() -> usize {
         KEY_SIZE.1 + LEFT_CHILD_PTR.1
     }
@@ -27,7 +31,7 @@ mod interior_header {
     /// (<offset>, <size>)
     pub const LEFT_CHILD_PTR: (usize, usize) = (0, size_of::<u32>());
     /// (<offset>, <size>)
-    pub const KEY_SIZE: (usize, usize) = (LEFT_CHILD_PTR.1, size_of::<u32>());
+    pub const KEY_SIZE: (usize, usize) = (LEFT_CHILD_PTR.1, size_of::<KeySize>());
     /// (<offset>, <size>)
     pub const PAYLOAD_START: usize = KEY_SIZE.0 + KEY_SIZE.1;
 }
@@ -37,9 +41,12 @@ pub use cell_mut::CellMut;
 mod cell {
     use std::{fmt::Debug, mem::size_of};
 
-    use crate::btree_index::btree::{node::cell::PayloadReadResult, RowAddress};
+    use crate::btree_index::btree::{
+        node::{cell::PayloadReadResult, node_header::NodePointer},
+        RowAddress,
+    };
 
-    use super::{interior_header, leaf_header};
+    use super::{interior_header, leaf_header, KeySize};
 
     pub enum Cell<'a> {
         Leaf(&'a [u8]),
@@ -48,21 +55,46 @@ mod cell {
 
     impl<'a> Debug for Cell<'a> {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let max_key_display_size = 10;
+            let key = self.key();
+            let key_display = match key {
+                PayloadReadResult::InPage { payload } => {
+                    let key_display_size = std::cmp::min(max_key_display_size, payload.len());
+                    let key_display = &payload[..key_display_size];
+                    String::from_utf8(key_display.to_vec()).unwrap()
+                }
+                PayloadReadResult::InOverflow {
+                    payload_len: _,
+                    partial_payload,
+                    overflow_page_head: _,
+                } => {
+                    let key_display_size = std::cmp::min(max_key_display_size, self.cell_size());
+                    let key_display = &partial_payload[..key_display_size];
+                    let mut s = String::from_utf8(key_display.to_vec()).unwrap();
+                    s.extend("... Overflow".chars());
+                    s
+                }
+            };
             match self {
                 Self::Leaf(b) => {
                     let key_size = self.key_size();
                     let cell_size = self.cell_size();
-                    write!(f, "Leaf: key_size: {}, cell_size: {}", key_size, cell_size)
+                    f.debug_struct("LeafCell")
+                        .field("key_size", &key_size)
+                        .field("cell_size", &cell_size)
+                        .field("key", &key_display)
+                        .finish()
                 }
                 Self::Interior(b) => {
                     let key_size = self.key_size();
                     let cell_size = self.cell_size();
                     let left_child_ptr = self.child_pointer();
-                    write!(
-                        f,
-                        "Interior: key_size: {}, cell_size: {}, left_child_ptr: {}",
-                        key_size, cell_size, left_child_ptr
-                    )
+                    f.debug_struct("InteriorCell")
+                        .field("key_size", &key_size)
+                        .field("cell_size", &cell_size)
+                        .field("left_child_ptr", &left_child_ptr)
+                        .field("key", &key_display)
+                        .finish()
                 }
             }
         }
@@ -85,20 +117,25 @@ mod cell {
             Self::Interior(allocated_buffer)
         }
 
-        pub fn child_pointer(&self) -> u32 {
+        pub fn child_pointer(&self) -> NodePointer {
             match self {
                 Self::Leaf(_) => panic!("Leaf node does not have child pointer"),
-                Self::Interior(b) => unsafe {
-                    *(b.as_ptr() as *const u32).add(interior_header::LEFT_CHILD_PTR.0)
-                },
+                Self::Interior(b) => NodePointer::from_be_bytes(unsafe {
+                    *(b.as_ptr().add(interior_header::LEFT_CHILD_PTR.0)
+                        as *const [u8; size_of::<NodePointer>()])
+                }),
             }
         }
 
         pub fn key_size(&self) -> usize {
             match self {
-                Self::Leaf(b) => unsafe { *(b.as_ptr() as *const u32) as usize },
+                Self::Leaf(b) => {
+                    u16::from_be_bytes(unsafe { *(b.as_ptr() as *const [u8; 2]) }) as usize
+                }
                 Self::Interior(b) => unsafe {
-                    *(b.as_ptr().add(interior_header::KEY_SIZE.0) as *const u32) as usize
+                    u16::from_be_bytes(
+                        *(b.as_ptr().add(interior_header::KEY_SIZE.0) as *const [u8; 2]),
+                    ) as usize
                 },
             }
         }
@@ -112,8 +149,8 @@ mod cell {
                         *(b.as_ptr().add(leaf_header::RECORD_OFFSET.0) as *const [u8; 4])
                     };
                     RowAddress {
-                        page_number: u32::from_le_bytes(page_number),
-                        offset: u32::from_le_bytes(record_offset),
+                        page_number: u32::from_be_bytes(page_number),
+                        offset: u32::from_be_bytes(record_offset),
                     }
                 }
                 Self::Interior(_) => panic!("Interior node does not have row address"),
@@ -150,9 +187,11 @@ mod cell {
             let key_size = self.key_size();
             let cell_size = self.cell_size();
             let payload = match self {
-                Self::Leaf(b) => &b[leaf_header::PAYLOAD_START..cell_size - size_of::<u32>()],
+                Self::Leaf(b) => {
+                    &b[leaf_header::PAYLOAD_START..cell_size - size_of::<NodePointer>()]
+                }
                 Self::Interior(b) => {
-                    &b[interior_header::PAYLOAD_START..cell_size - size_of::<u32>()]
+                    &b[interior_header::PAYLOAD_START..cell_size - size_of::<NodePointer>()]
                 }
             };
             let overflow_page_head = self.overflow_page_head().unwrap();
@@ -215,10 +254,13 @@ mod cell_mut {
             self.cell().key_size()
         }
 
-        pub fn set_right_child_pointer(&mut self, right_child_pointer: u32) {
+        pub fn set_child_pointer(&mut self, child_pointer: u32) {
             match self {
                 Self::Leaf(_) => panic!("Leaf node does not have child pointer"),
-                Self::Interior(b) => unsafe {},
+                Self::Interior(b) => unsafe {
+                    *(b.as_ptr().add(interior_header::LEFT_CHILD_PTR.0)
+                        as *mut [u8; size_of::<NodePointer>()]) = child_pointer.to_be_bytes();
+                },
             }
         }
 
@@ -290,7 +332,7 @@ mod cell_mut {
                 // key is too large to fit in this cell
                 let cell_size = self.cell_size();
                 // last 4 bytes are reserved for overflow page head
-                let split_point = cell_size - size_of::<u32>() - self.header_size();
+                let split_point = cell_size - size_of::<NodePointer>() - self.header_size();
                 match self {
                     Self::Leaf(b) => {
                         b[leaf_header::PAYLOAD_START..cell_size - size_of::<u32>()]
@@ -348,20 +390,79 @@ mod cell_mut {
 #[cfg(test)]
 mod tests {
     use crate::btree_index::btree::node::cell::cell::interior_header;
+    use crate::btree_index::btree::node::cell::cell::leaf_header;
     use crate::btree_index::btree::node::cell::Cell;
     use crate::btree_index::btree::node::cell::CellMut;
     use crate::btree_index::btree::node::cell::PayloadReadResult;
     use crate::btree_index::btree::node::cell::PayloadWriteResult;
+    use crate::btree_index::btree::RowAddress;
 
     #[test]
     fn simple_leaf_cell() {
         let mut buffer = [0; 64];
         let mut cell = unsafe { CellMut::leaf(&mut buffer) };
-        let rs = cell.write_key(&[0xe; 64 - interior_header::static_header_size()]);
+        let rs = cell.write_key(&[0xe; 64 - leaf_header::static_header_size()]);
         assert_eq!(rs, PayloadWriteResult::InPage);
         cell.set_overflow_page_head(None);
+        cell.set_row_address(RowAddress::new(1, 2));
 
         let cell = unsafe { Cell::leaf(&buffer) };
+        assert_eq!(cell.key_size(), 64 - leaf_header::static_header_size());
+        assert_eq!(cell.cell_size(), 64);
+        assert_eq!(cell.have_overflow(), false);
+        assert_eq!(
+            cell.key(),
+            PayloadReadResult::InPage {
+                payload: &[0xe; 64 - leaf_header::static_header_size()],
+            }
+        );
+        assert_eq!(cell.overflow_page_head(), None);
+        assert_eq!(cell.row_address(), RowAddress::new(1, 2));
+    }
+
+    #[test]
+    fn leaf_cell_with_overflow() {
+        let mut buffer = [0; 64];
+        let mut cell_mut = unsafe { CellMut::leaf(&mut buffer) };
+        let rs = cell_mut.write_key(&[0xe; 100]);
+        assert_eq!(
+            rs,
+            PayloadWriteResult::InOverflow {
+                remain_payload: &[0xe; 100 - (64 - leaf_header::static_header_size() - 4)],
+            }
+        );
+        cell_mut.set_overflow_page_head(Some(0x12345678));
+        cell_mut.set_row_address(RowAddress::new(1, 2));
+        assert_eq!(cell_mut.overflow_page_head(), Some(0x12345678));
+        assert_eq!(cell_mut.key_size(), 100);
+        assert_eq!(cell_mut.have_overflow(), true);
+
+        let cell = unsafe { Cell::leaf(&buffer) };
+        assert_eq!(cell.key_size(), 100);
+        assert_eq!(cell.cell_size(), 64);
+        assert_eq!(cell.have_overflow(), true);
+        assert_eq!(
+            cell.key(),
+            PayloadReadResult::InOverflow {
+                payload_len: 100,
+                partial_payload: &[0xe; 64 - leaf_header::static_header_size() - 4],
+                overflow_page_head: 0x12345678,
+            }
+        );
+        assert_eq!(cell.row_address(), RowAddress::new(1, 2));
+        assert_eq!(cell.overflow_page_head(), Some(0x12345678));
+    }
+
+    #[test]
+    fn simple_interior_cell() {
+        let mut buffer = [0; 64];
+        let mut writer = unsafe { CellMut::interior(&mut buffer) };
+        let rs = writer.write_key(&[0xe; 64 - interior_header::static_header_size()]);
+        assert_eq!(rs, PayloadWriteResult::InPage);
+        writer.set_overflow_page_head(None);
+        writer.set_child_pointer(0x12345678);
+
+        let cell = unsafe { Cell::interior(&buffer) };
         assert_eq!(cell.key_size(), 64 - interior_header::static_header_size());
         assert_eq!(cell.cell_size(), 64);
         assert_eq!(cell.have_overflow(), false);
@@ -372,58 +473,7 @@ mod tests {
             }
         );
         assert_eq!(cell.overflow_page_head(), None);
-    }
-
-    #[test]
-    fn leaf_cell_with_overflow() {
-        let mut buffer = [0; 64];
-        let mut writer = unsafe { CellMut::leaf(&mut buffer) };
-        let rs = writer.write_key(&[0xe; 100]);
-        assert_eq!(
-            rs,
-            PayloadWriteResult::InOverflow {
-                remain_payload: &[0xe; 100 - (64 - interior_header::static_header_size() - 4)],
-            }
-        );
-        writer.set_overflow_page_head(Some(0x12345678));
-        assert_eq!(writer.overflow_page_head(), Some(0x12345678));
-        assert_eq!(writer.key_size(), 100);
-        assert_eq!(writer.have_overflow(), true);
-
-        let cell = unsafe { Cell::leaf(&buffer) };
-        assert_eq!(cell.key_size(), 100);
-        assert_eq!(cell.cell_size(), 64);
-        assert_eq!(cell.have_overflow(), true);
-        assert_eq!(
-            cell.key(),
-            PayloadReadResult::InOverflow {
-                payload_len: 100,
-                partial_payload: &[0xe; 64 - interior_header::static_header_size() - 4],
-                overflow_page_head: 0x12345678,
-            }
-        );
-        assert_eq!(cell.overflow_page_head(), Some(0x12345678));
-    }
-
-    #[test]
-    fn simple_interior_cell() {
-        let mut buffer = [0; 64];
-        let mut writer = unsafe { CellMut::interior(&mut buffer) };
-        let rs = writer.write_key(&[0xe; 64 - 4]);
-        assert_eq!(rs, PayloadWriteResult::InPage);
-        writer.set_overflow_page_head(None);
-
-        let cell = unsafe { Cell::interior(&buffer) };
-        assert_eq!(cell.key_size(), 64 - 4);
-        assert_eq!(cell.cell_size(), 64);
-        assert_eq!(cell.have_overflow(), false);
-        assert_eq!(
-            cell.key(),
-            PayloadReadResult::InPage {
-                payload: &[0xe; 64 - 4],
-            }
-        );
-        assert_eq!(cell.overflow_page_head(), None);
+        assert_eq!(cell.child_pointer(), 0x12345678);
     }
 
     #[test]
@@ -434,10 +484,11 @@ mod tests {
         assert_eq!(
             rs,
             PayloadWriteResult::InOverflow {
-                remain_payload: &[0xe; 100 - (64 - 4 - 4)],
+                remain_payload: &[0xe; 100 - (64 - 4 - interior_header::static_header_size())],
             }
         );
         writer.set_overflow_page_head(Some(0x12345678));
+        writer.set_child_pointer(0x12345678);
 
         let cell = unsafe { Cell::interior(&buffer) };
         assert_eq!(cell.key_size(), 100);
@@ -447,10 +498,11 @@ mod tests {
             cell.key(),
             PayloadReadResult::InOverflow {
                 payload_len: 100,
-                partial_payload: &[0xe; 64 - 4 - 4],
+                partial_payload: &[0xe; 64 - 4 - interior_header::static_header_size()],
                 overflow_page_head: 0x12345678,
             }
         );
         assert_eq!(cell.overflow_page_head(), Some(0x12345678));
+        assert_eq!(cell.child_pointer(), 0x12345678);
     }
 }

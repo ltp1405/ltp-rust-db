@@ -1,5 +1,8 @@
 use crate::{
-    btree_index::btree::{node::node_header::NodeType, RowAddress},
+    btree_index::btree::{
+        node::{node_header::NodeType, Slot},
+        RowAddress,
+    },
     buffer_manager::BufferManager,
     disk_manager::DiskManager,
 };
@@ -97,91 +100,215 @@ mod set_and_get {
     }
 }
 
+#[test]
+fn insert_and_search_in_interior_node() {
+    const BLOCK_SIZE: usize = 4096;
+    const DISK_CAPACITY: usize = 4096 * 32;
+    const MEMORY_CAPACITY: usize = 4096 * 16;
+
+    let memory = [0; MEMORY_CAPACITY];
+    let disk =
+        disk::Disk::<BLOCK_SIZE, DISK_CAPACITY>::create("insert_and_search_in_interior_node")
+            .unwrap();
+    let buffer_manager: BufferManager<'_, BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY> =
+        BufferManager::init(&memory, &disk);
+    let disk_manager = DiskManager::init(&disk);
+
+    let keys: Vec<i32> = vec![5, 56, 43, 67, 47, 2, 34, 2345, 235];
+    let node = Node::new(NodeType::Interior, &buffer_manager, &disk_manager);
+    assert_eq!(node.search(&keys[0].to_be_bytes()), Slot::Hole(0));
+    let node = match node.interior_insert(&keys[0].to_be_bytes(), 12, None) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    assert_eq!(node.search(&keys[0].to_be_bytes()), Slot::Cell(0));
+    assert_eq!(node.search(&keys[1].to_be_bytes()), Slot::Hole(1));
+    let node = match node.interior_insert(&keys[1].to_be_bytes(), 12, None) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    assert_eq!(node.search(&keys[1].to_be_bytes()), Slot::Cell(1));
+    assert_eq!(node.search(&keys[2].to_be_bytes()), Slot::Hole(1));
+    let node = match node.interior_insert(&keys[2].to_be_bytes(), 12, None) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    assert_eq!(node.search(&keys[2].to_be_bytes()), Slot::Cell(1));
+    assert_eq!(node.search(&keys[3].to_be_bytes()), Slot::Hole(3));
+    let node = match node.interior_insert(&keys[3].to_be_bytes(), 12, None) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    assert_eq!(node.search(&keys[3].to_be_bytes()), Slot::Cell(3));
+    assert_eq!(node.search(&keys[4].to_be_bytes()), Slot::Hole(2));
+    let node = match node.interior_insert(&keys[4].to_be_bytes(), 12, None) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    assert_eq!(node.search(&keys[4].to_be_bytes()), Slot::Cell(2));
+    assert_eq!(node.search(&keys[5].to_be_bytes()), Slot::Hole(0));
+    let node = match node.interior_insert(&keys[5].to_be_bytes(), 12, None) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    assert_eq!(node.search(&keys[5].to_be_bytes()), Slot::Cell(0));
+
+    println!("{:#?}", node);
+    assert_eq!(node.search(&keys[0].to_be_bytes()), Slot::Cell(1));
+    assert_eq!(node.search(&keys[1].to_be_bytes()), Slot::Cell(4));
+    assert_eq!(node.search(&keys[2].to_be_bytes()), Slot::Cell(2));
+    assert_eq!(node.search(&keys[3].to_be_bytes()), Slot::Cell(5));
+    assert_eq!(node.search(&keys[4].to_be_bytes()), Slot::Cell(3));
+    assert_eq!(node.search(&keys[5].to_be_bytes()), Slot::Cell(0));
+}
+
+#[test]
+fn insert_and_search_in_leaf_node() {
+    const BLOCK_SIZE: usize = 4096;
+    const DISK_CAPACITY: usize = 4096 * 32;
+    const MEMORY_CAPACITY: usize = 4096 * 16;
+
+    let memory = [0; MEMORY_CAPACITY];
+    let disk =
+        disk::Disk::<BLOCK_SIZE, DISK_CAPACITY>::create("insert_and_search_in_leaf_node").unwrap();
+    let buffer_manager: BufferManager<'_, BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY> =
+        BufferManager::init(&memory, &disk);
+    let disk_manager = DiskManager::init(&disk);
+
+    let keys: Vec<i32> = vec![5, 56, 43, 67, 47, 2, 34, 2345, 235];
+    let node = Node::new(NodeType::Leaf, &buffer_manager, &disk_manager);
+    assert_eq!(node.search(&keys[0].to_be_bytes()), Slot::Hole(0));
+    let node = match node.leaf_insert(&keys[0].to_be_bytes(), RowAddress::new(1, 2), None) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    assert_eq!(node.search(&keys[0].to_be_bytes()), Slot::Cell(0));
+    assert_eq!(node.search(&keys[1].to_be_bytes()), Slot::Hole(1));
+    let node = match node.leaf_insert(&keys[1].to_be_bytes(), RowAddress::new(3, 4), None) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    assert_eq!(node.search(&keys[1].to_be_bytes()), Slot::Cell(1));
+    assert_eq!(node.search(&keys[2].to_be_bytes()), Slot::Hole(1));
+    let node = match node.leaf_insert(&keys[2].to_be_bytes(), RowAddress::new(5, 6), None) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    assert_eq!(node.search(&keys[2].to_be_bytes()), Slot::Cell(1));
+    assert_eq!(node.search(&keys[3].to_be_bytes()), Slot::Hole(3));
+    let node = match node.leaf_insert(&keys[3].to_be_bytes(), RowAddress::new(1, 2), None) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    assert_eq!(node.search(&keys[3].to_be_bytes()), Slot::Cell(3));
+    assert_eq!(node.search(&keys[4].to_be_bytes()), Slot::Hole(2));
+    let node = match node.leaf_insert(&keys[4].to_be_bytes(), RowAddress::new(1, 2), None) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    assert_eq!(node.search(&keys[4].to_be_bytes()), Slot::Cell(2));
+    assert_eq!(node.search(&keys[5].to_be_bytes()), Slot::Hole(0));
+    let node = match node.leaf_insert(&keys[5].to_be_bytes(), RowAddress::new(12, 423), None) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    assert_eq!(node.search(&keys[5].to_be_bytes()), Slot::Cell(0));
+
+    println!("{:#?}", node);
+    assert_eq!(node.search(&keys[0].to_be_bytes()), Slot::Cell(1));
+    assert_eq!(node.search(&keys[1].to_be_bytes()), Slot::Cell(4));
+    assert_eq!(node.search(&keys[2].to_be_bytes()), Slot::Cell(2));
+    assert_eq!(node.search(&keys[3].to_be_bytes()), Slot::Cell(5));
+    assert_eq!(node.search(&keys[4].to_be_bytes()), Slot::Cell(3));
+    assert_eq!(node.search(&keys[5].to_be_bytes()), Slot::Cell(0));
+}
+
 mod insert_without_splitting {
     use crate::{
-        btree_index::btree::node::{
-            node_header::NodeType, tests::create_leaf_node_samples, InsertResult, Node,
+        btree_index::btree::{
+            node::{node_header::NodeType, InsertResult, Node},
+            RowAddress,
         },
         buffer_manager::BufferManager,
         disk_manager::DiskManager,
     };
 
     #[test]
-    fn single_interior_insert() {
+    fn basic_interior_insert() {
         const BLOCK_SIZE: usize = 4096;
         const DISK_CAPACITY: usize = 4096 * 32;
         const MEMORY_CAPACITY: usize = 4096 * 16;
 
         let memory = [0; MEMORY_CAPACITY];
         let disk =
-            disk::Disk::<BLOCK_SIZE, DISK_CAPACITY>::create("single_interior_insert").unwrap();
+            disk::Disk::<BLOCK_SIZE, DISK_CAPACITY>::create("basic_interior_insert").unwrap();
         let buffer_manager: BufferManager<'_, BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY> =
             BufferManager::init(&memory, &disk);
         let disk_manager = DiskManager::init(&disk);
 
-        let children = create_leaf_node_samples(&disk_manager, &buffer_manager, 5);
-        let mut node = Node::new(NodeType::Interior, &buffer_manager, &disk_manager);
-        let node = if let InsertResult::Normal(node) = node.interior_insert(22, children[0]) {
+        let node = Node::new(NodeType::Interior, &buffer_manager, &disk_manager);
+        let node = if let InsertResult::Normal(node) =
+            node.interior_insert(&[1, 2, 3, 4, 5, 6], 112, None)
+        {
             node
         } else {
             unreachable!()
         };
-        let node = if let InsertResult::Normal(node) = node.interior_insert(12, children[1]) {
+        assert_eq!(node.num_cells(), 1);
+        assert_eq!(node.key_of_cell(0), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(node.child_pointer_of_cell(0), 112);
+
+        let node = if let InsertResult::Normal(node) =
+            node.interior_insert(&[3, 4, 5, 6, 7, 8], 12, None)
+        {
             node
         } else {
             unreachable!()
         };
-        let node = if let InsertResult::Normal(node) = node.interior_insert(300, children[2]) {
-            node
-        } else {
-            unreachable!()
-        };
-        let node = if let InsertResult::Normal(node) = node.interior_insert(1242, children[2]) {
-            node
-        } else {
-            unreachable!()
-        };
-        println!("{:#?}", node);
-        let node = match node.interior_insert(200, children[4] as u32) {
-            InsertResult::Splitted(key, left, right) => {
-                println!("{:#?}", key);
-                println!("{:#?}", left);
-                println!("{:#?}", right);
-                left
-            }
-            _ => unreachable!("Bad result"),
-        };
-        let cell = node.cell_at(0);
-        assert_eq!(cell.child_pointer(), 12);
-        for i in 0..node.num_cells() - 1 {
-            let lo = node.cell_at(i).key();
-            let hi = node.cell_at(i + 1).key();
-            // assert!(lo < hi, "Key should be sorted: {} > {}", lo, hi);
-        }
+        assert_eq!(node.num_cells(), 2);
+        assert_eq!(node.key_of_cell(0), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(node.key_of_cell(1), &[3, 4, 5, 6, 7, 8]);
+        assert_eq!(node.child_pointer_of_cell(0), 112);
+        assert_eq!(node.child_pointer_of_cell(1), 12);
     }
 
-    // #[test]
-    // fn basic_leaf_insert() {
-    //     const BLOCK_SIZE: usize = 4096;
-    //     const DISK_CAPACITY: usize = 4096 * 32;
-    //     const MEMORY_CAPACITY: usize = 4096 * 16;
+    #[test]
+    fn basic_leaf_insert() {
+        const BLOCK_SIZE: usize = 4096;
+        const DISK_CAPACITY: usize = 4096 * 32;
+        const MEMORY_CAPACITY: usize = 4096 * 16;
 
-    //     let memory = [0; MEMORY_CAPACITY];
-    //     let disk = disk::Disk::<BLOCK_SIZE, DISK_CAPACITY>::create("basic_leaf_insert").unwrap();
-    //     let buffer_manager: BufferManager<'_, BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY> =
-    //         BufferManager::init(&memory, &disk);
-    //     let disk_manager = DiskManager::init(&disk);
+        let memory = [0; MEMORY_CAPACITY];
+        let disk = disk::Disk::<BLOCK_SIZE, DISK_CAPACITY>::create("basic_leaf_insert").unwrap();
+        let buffer_manager: BufferManager<'_, BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY> =
+            BufferManager::init(&memory, &disk);
+        let disk_manager = DiskManager::init(&disk);
 
-    //     let mut node = Node::new(&buffer_manager, &disk_manager);
-    //     let node =
-    //         if let InsertResult::Normal(node) = node.leaf_insert(22, &[1, 2, 3, 4, 5, 6], None) {
-    //             node
-    //         } else {
-    //             unreachable!()
-    //         };
-    //     let cell = node.cell_at(node.cell_pointer(0));
-    //     assert_eq!(cell.kept_payload(), &[1, 2, 3, 4, 5, 6],);
-    // }
+        let node = Node::new(NodeType::Leaf, &buffer_manager, &disk_manager);
+        let node = if let InsertResult::Normal(node) =
+            node.leaf_insert(&[1, 2, 3, 4, 5, 6], RowAddress::new(3333, 8888), None)
+        {
+            node
+        } else {
+            unreachable!()
+        };
+        assert_eq!(node.num_cells(), 1);
+        assert_eq!(node.key_of_cell(0), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(node.row_address_of_cell(0), RowAddress::new(3333, 8888));
+
+        let node = if let InsertResult::Normal(node) =
+            node.leaf_insert(&[3, 4, 5, 6, 7, 8], RowAddress::new(1234, 5678), None)
+        {
+            node
+        } else {
+            unreachable!()
+        };
+        assert_eq!(node.num_cells(), 2);
+        assert_eq!(node.key_of_cell(0), &[1, 2, 3, 4, 5, 6]);
+        assert_eq!(node.key_of_cell(1), &[3, 4, 5, 6, 7, 8]);
+        assert_eq!(node.row_address_of_cell(0), RowAddress::new(3333, 8888));
+        assert_eq!(node.row_address_of_cell(1), RowAddress::new(1234, 5678));
+    }
 
     // #[test]
     // fn leaf_insert_cell() {

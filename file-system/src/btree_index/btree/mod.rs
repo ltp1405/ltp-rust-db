@@ -2,7 +2,7 @@ mod node;
 
 use std::sync::{Arc, Mutex};
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq)]
 pub struct RowAddress {
     page_number: u32,
     offset: u32,

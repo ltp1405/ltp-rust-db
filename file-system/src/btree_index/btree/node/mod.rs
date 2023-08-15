@@ -44,21 +44,26 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
                     .finish()
             }
             NodeType::Interior => {
-                // let mut children = Vec::new();
-                // for i in 0..self.num_cells() {
-                //     let cell = self.cell_at(i);
-                //     let node =
-                //         Node::from(self.buffer_manager, self.disk_manager, cell.child_pointer());
-                //     let key = self.key_of_cell(i);
-                //     children.push((key, node));
-                // }
-                // let right_child =
-                //     Node::from(self.buffer_manager, self.disk_manager, self.right_child());
+                let mut children = Vec::new();
+                for i in 0..self.num_cells() {
+                    let cell = self.cell_at(i);
+                    let node =
+                        Node::from(self.buffer_manager, self.disk_manager, cell.child_pointer());
+                    let key = self.key_of_cell(i);
+                    let max_key_display_size = 10;
+                    let key_display_size = std::cmp::min(max_key_display_size, key.len());
+                    let key_display = &key[..key_display_size];
+                    let key = String::from_utf8(key_display.to_vec()).unwrap();
+                    children.push((key, node));
+                }
+                let right_child =
+                    Node::from(self.buffer_manager, self.disk_manager, self.right_child());
                 f.debug_struct("InteriorNode")
                     .field("address", &self.page_number)
+                    .field("Space left", &self.free_size())
                     .field("children_num", &self.num_cells())
-                    // .field("children", &children)
-                    // .field("right_most_child", &right_child)
+                    .field("children", &children)
+                    .field("right_most_child", &right_child)
                     .finish()
             }
         }
@@ -90,7 +95,7 @@ pub enum InsertResult<
     KeyExisted(Node<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>),
     Normal(Node<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>),
     Splitted(
-        NodePointer,
+        Vec<u8>,
         Node<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
         Node<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
     ),
@@ -184,6 +189,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
     }
 
     pub fn key_of_cell(&self, cell_num: u32) -> Vec<u8> {
+        if cell_num >= self.num_cells() {
+            panic!("Cell number out of bound");
+        }
         let cell = self.cell_at(cell_num);
         let read_result = cell.key();
         match read_result {
@@ -281,14 +289,13 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
                     Slot::Hole(hole) => hole,
                     Slot::Cell(_cell) => panic!("Key already exists"),
                 };
-                let cell_start = self.cell_content_start();
                 let allocated_size = Cell::leaf_header_size() + key.len();
+                let cell_start = self.cell_content_start() - allocated_size as u16;
                 self.insert_cell_pointer(hole, cell_start as u16, allocated_size as u16);
                 let mut cell = self.cell_mut_at(hole);
                 cell.write_key(key);
                 cell.set_row_address(row_address);
                 cell.set_overflow_page_head(overflow_head);
-                let cell_start = cell_start as u32 - (cell.header_size() as u32) - key.len() as u32;
                 self.set_cell_content_start(cell_start as u16);
                 InsertResult::Normal(self)
             }
@@ -319,40 +326,43 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
                 // InsertResult::Normal(self)
             }
             InsertDecision::Split => {
-                todo!();
-                // let page = self.page();
-                // let mut new_node = Node::new(self.buffer_manager, self.disk_manager);
-                // new_node.set_node_type(NodeType::Leaf);
-                // let mid = self.num_cells() / 2;
-                // for i in mid..self.num_cells() {
-                //     let cell = self.cell_at(i);
-                //     new_node = if let InsertResult::Normal(node) = new_node.leaf_insert(
-                //         cell.key(),
-                //         cell.kept_payload(),
-                //         cell.overflow_page_head(),
-                //     ) {
-                //         node
-                //     } else {
-                //         unreachable!()
-                //     };
-                // }
-                // // TODO: Handle hole after split
-                // let cell_bound = self.cell_bound(mid);
-                // let mid_key = self.cell_at(mid).key();
-                // self.set_num_cells(mid);
+                let mut new_node =
+                    Node::new(NodeType::Leaf, self.buffer_manager, self.disk_manager);
+                let mid = self.num_cells() / 2;
+                for i in mid..self.num_cells() {
+                    let cell = self.cell_at(i);
+                    new_node = if let InsertResult::Normal(node) = new_node.leaf_insert(
+                        &self.key_of_cell(i),
+                        self.row_address_of_cell(i),
+                        cell.overflow_page_head(),
+                    ) {
+                        node
+                    } else {
+                        unreachable!()
+                    };
+                }
+                // TODO: Handle hole after split
+                let mid_key = self.key_of_cell(mid);
+                self.set_num_cells(mid);
+                let mut min_start = BLOCKSIZE;
+                for i in 0..mid {
+                    let bound = self.cell_pointer_and_size(i);
+                    min_start = std::cmp::min(min_start, bound.0 as usize);
+                }
+                self.set_cell_content_start(min_start as u16);
 
-                // if key >= mid_key {
-                //     new_node = match new_node.leaf_insert(key, payload, overflow_head) {
-                //         InsertResult::Normal(node) => node,
-                //         _ => unreachable!("Maybe overflow calculation go wrong"),
-                //     }
-                // } else {
-                //     self = match self.leaf_insert(key, payload, overflow_head) {
-                //         InsertResult::Normal(node) => node,
-                //         _ => unreachable!("Maybe overflow calculation go wrong"),
-                //     }
-                // };
-                // InsertResult::Splitted(mid_key, self, new_node)
+                if key >= &mid_key {
+                    new_node = match new_node.leaf_insert(key, row_address, overflow_head) {
+                        InsertResult::Normal(node) => node,
+                        _ => unreachable!("Maybe overflow calculation go wrong"),
+                    }
+                } else {
+                    self = match self.leaf_insert(key, row_address, overflow_head) {
+                        InsertResult::Normal(node) => node,
+                        _ => unreachable!("Maybe overflow calculation go wrong"),
+                    }
+                };
+                InsertResult::Splitted(mid_key.to_vec(), self, new_node)
             }
         }
     }
@@ -405,14 +415,13 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
                     Slot::Hole(hole) => hole,
                     Slot::Cell(_cell) => return InsertResult::KeyExisted(self),
                 };
-                let cell_start = self.cell_content_start();
                 let allocated_size = Cell::interior_header_size() + key.len();
+                let cell_start = self.cell_content_start() - allocated_size as u16;
                 self.insert_cell_pointer(hole, cell_start as u16, allocated_size as u16);
                 let mut cell = self.cell_mut_at(hole);
                 cell.write_key(key);
                 cell.set_child_pointer(child);
                 cell.set_overflow_page_head(overflow_head);
-                let cell_start = cell_start as u32 - (cell.header_size() as u32) - key.len() as u32;
                 self.set_cell_content_start(cell_start as u16);
                 InsertResult::Normal(self)
             }
@@ -420,37 +429,43 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
                 unreachable!()
             }
             InsertDecision::Split => {
-                todo!()
-                // let page = self.page();
-                // let mut new_node = Node::new(self.buffer_manager, self.disk_manager);
-                // new_node.set_node_type(NodeType::Interior);
-                // let mid = self.num_cells() / 2;
-                // for i in mid..self.num_cells() {
-                //     println!("{}", self.cell_pointer(i));
-                //     let cell = self.cell_at(i);
-                //     println!("{:?}", cell);
-                //     new_node = match new_node.interior_insert(cell.key(), cell.child()) {
-                //         InsertResult::Normal(node) => node,
-                //         _ => unreachable!(),
-                //     };
-                // }
-                // // TODO: Handle hole after split
-                // let mid_key = self.cell_at(mid).key();
-                // self.set_num_cells(mid);
+                let mut new_node =
+                    Node::new(NodeType::Interior, self.buffer_manager, self.disk_manager);
+                new_node.set_node_type(NodeType::Interior);
+                let mid = self.num_cells() / 2;
+                for i in mid..self.num_cells() {
+                    new_node = match new_node.interior_insert(
+                        &self.key_of_cell(i),
+                        self.child_pointer_of_cell(i),
+                        None,
+                    ) {
+                        InsertResult::Normal(node) => node,
+                        _ => unreachable!(),
+                    };
+                }
+                // TODO: Handle hole after split
+                let mid_key = self.key_of_cell(mid);
+                self.set_num_cells(mid);
 
-                // if key >= mid_key {
-                //     new_node = match new_node.interior_insert(key, child) {
-                //         InsertResult::Normal(node) => node,
-                //         _ => unreachable!("Maybe overflow calculation go wrong"),
-                //     }
-                // } else {
-                //     self = match self.interior_insert(key, child) {
-                //         InsertResult::Normal(node) => node,
-                //         _ => unreachable!("Maybe overflow calculation go wrong"),
-                //     }
-                // };
-                // self.set_node_type(NodeType::Interior);
-                // InsertResult::Splitted(mid_key, self, new_node)
+                let mut min_start = BLOCKSIZE;
+                for i in 0..mid {
+                    let bound = self.cell_pointer_and_size(i);
+                    min_start = std::cmp::min(min_start, bound.0 as usize);
+                }
+                self.set_cell_content_start(min_start as u16);
+
+                if key >= &mid_key {
+                    new_node = match new_node.interior_insert(key, child, None) {
+                        InsertResult::Normal(node) => node,
+                        _ => unreachable!("Maybe overflow calculation go wrong"),
+                    }
+                } else {
+                    self = match self.interior_insert(key, child, None) {
+                        InsertResult::Normal(node) => node,
+                        _ => unreachable!("Maybe overflow calculation go wrong"),
+                    }
+                };
+                InsertResult::Splitted(mid_key, self, new_node)
             }
         }
     }
@@ -471,61 +486,51 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
     //     cells
     // }
 
-    // pub fn node_insert(
-    //     self,
-    //     key: &[u8],
-    //     payload: &[u8],
-    // ) -> InsertResult<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> {
-    //     let node_type = self.node_type();
-    //     match node_type {
-    //         NodeType::Leaf => return self.leaf_insert(key, payload, None),
-    //         NodeType::Interior => {
-    //             // Find the child to insert the payload into
-    //             let hole = self.search(key);
-    //             let hole = match hole {
-    //                 Slot::Hole(hole) => hole,
-    //                 Slot::Cell(cell) => cell,
-    //             };
-    //             let right_child = self.right_child();
-    //             let offset = self.cell_pointer(hole);
-    //             let child = {
-    //                 if hole >= self.num_cells() {
-    //                     right_child
-    //                 } else {
-    //                     {
-    //                         // let pager = self.pager.clone();
-    //                         // let mut pager = pager.lock().unwrap();
-    //                         // let page = pager.get_page(self.page_num as usize).unwrap();
-    //                         // let cell = unsafe {Cell::interior_at(page.as, offset as usize)};
-    //                         // cell.child()
-    //                         todo!();
-    //                     }
-    //                 }
-    //             };
-    //             let result = {
-    //                 let to_insert_node = Node::from(self.buffer_manager, self.disk_manager, child);
-    //                 to_insert_node.node_insert(key, payload)
-    //             };
-    //             match result {
-    //                 InsertResult::Normal(_node) => InsertResult::Normal(self),
-    //                 InsertResult::Splitted(returned_key, left, right) => {
-    //                     let num_cells = self.num_cells();
-    //                     if hole >= num_cells {
-    //                         self.set_right_child(right.page_number);
-    //                     } else {
-    //                         let cell_offset = self.cell_pointer(hole);
-    //                         // let page = pager.get_page(self.page_num as usize).unwrap();
-    //                         // let cell = Cell::interior_at(&page, cell_offset as usize);
-    //                         // cell.set_child(right.page_num);
-    //                         todo!();
-    //                     }
-    //                     self.interior_insert(returned_key, left.page_number)
-    //                 }
-    //                 InsertResult::KeyExisted(key) => InsertResult::KeyExisted(key),
-    //             }
-    //         }
-    //     }
-    // }
+    pub fn node_insert(
+        mut self,
+        key: &[u8],
+        row_address: RowAddress,
+    ) -> InsertResult<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> {
+        let node_type = self.node_type();
+        match node_type {
+            NodeType::Leaf => return self.leaf_insert(key, row_address, None),
+            NodeType::Interior => {
+                // Find the child to insert the payload into
+                let hole = self.search(key);
+                let hole = match hole {
+                    Slot::Hole(hole) => hole,
+                    Slot::Cell(cell) => cell,
+                };
+                let child = {
+                    if hole >= self.num_cells() {
+                        self.right_child()
+                    } else {
+                        self.child_pointer_of_cell(hole)
+                    }
+                };
+                let result = {
+                    let to_insert_node = Node::from(self.buffer_manager, self.disk_manager, child);
+                    // Recursively insert the key payload until it reaches a leaf node
+                    to_insert_node.node_insert(key, row_address)
+                };
+                match result {
+                    InsertResult::Normal(_node) => InsertResult::Normal(self),
+                    // if the under layer node is splitted, we need to update the child pointer
+                    InsertResult::Splitted(returned_key, left, right) => {
+                        let num_cells = self.num_cells();
+                        if hole >= num_cells {
+                            self.set_right_child(left.page_number);
+                        } else {
+                            let mut cell = self.cell_mut_at(hole);
+                            cell.set_child_pointer(left.page_number);
+                        }
+                        self.interior_insert(&returned_key, right.page_number, None)
+                    }
+                    InsertResult::KeyExisted(key) => InsertResult::KeyExisted(key),
+                }
+            }
+        }
+    }
 
     fn overflow_amount(&self, payload_size: u32) -> Option<u32> {
         let free_size = self.free_size();
@@ -552,6 +557,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
     }
 
     fn set_cell_pointer_and_size(&mut self, cell_num: u32, cell_pointer: u16, cell_size: u16) {
+        if cell_pointer + cell_size > BLOCKSIZE as u16 {
+            panic!("Cell pointer and size is too large");
+        }
         let mut page = self.page();
         unsafe {
             NodeHeaderWriter::new(page.as_mut_ptr()).set_cell_pointer_and_size(
@@ -583,10 +591,10 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
                 }
             }
             NodeType::Leaf => {
-                if free_size < 30 {
+                if free_size < 100 {
                     return InsertDecision::Split;
-                } else if free_size < payload_size {
-                    return InsertDecision::Overflow(free_size);
+                // } else if free_size < payload_size {
+                //     return InsertDecision::Overflow(free_size);
                 } else {
                     return InsertDecision::Normal;
                 }

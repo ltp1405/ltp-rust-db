@@ -204,7 +204,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         }
     }
 
-    pub fn row_address_of_cell(&self, cell_num: u32) -> RowAddress {
+    fn row_address_of_cell(&self, cell_num: u32) -> RowAddress {
         if self.node_type() != NodeType::Leaf {
             panic!("Only leaf node has row address");
         }
@@ -213,7 +213,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         row_address
     }
 
-    pub fn child_pointer_of_cell(&self, cell_num: u32) -> NodePointer {
+    fn child_pointer_of_cell(&self, cell_num: u32) -> NodePointer {
         if self.node_type() != NodeType::Interior {
             panic!("Only interior node has child");
         }
@@ -250,17 +250,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         }
     }
 
-    pub fn leaf_split_to(
-        node: Node<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-    ) -> (
-        Node<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-        Node<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-    ) {
-        // let right = Node::new(,node.buffer_manager, node.disk_manager);
-        todo!()
-    }
-
-    pub fn insert_cell_pointer(&mut self, hole: u32, pointer: u16, size: u16) {
+    fn insert_cell_pointer(&mut self, hole: u32, pointer: u16, size: u16) {
         self.set_num_cells(self.num_cells() + 1);
         let cell_num = self.num_cells();
         for cell_i in (hole + 1..cell_num).rev() {
@@ -284,6 +274,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         }
         match self.insert_decision(key.len()) {
             InsertDecision::Normal => {
+                log::debug!("Inserting normally");
                 let hole = self.search(key);
                 let hole = match hole {
                     Slot::Hole(hole) => hole,
@@ -326,6 +317,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
                 // InsertResult::Normal(self)
             }
             InsertDecision::Split => {
+                log::debug!("Begin splitting on node: {:?}", self.page_number);
                 let mut new_node =
                     Node::new(NodeType::Leaf, self.buffer_manager, self.disk_manager);
                 let mid = self.num_cells() / 2;
@@ -338,9 +330,15 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
                     ) {
                         node
                     } else {
-                        unreachable!()
+                        unreachable!("New node should not overflow")
                     };
                 }
+                log::debug!(
+                    "Moved {} cell(s) to node: {}",
+                    self.num_cells() - mid,
+                    new_node.page_number
+                );
+                log::debug!("{} cell(s) remain", mid);
                 // TODO: Handle hole after split
                 let mid_key = self.key_of_cell(mid);
                 self.set_num_cells(mid);
@@ -362,6 +360,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
                         _ => unreachable!("Maybe overflow calculation go wrong"),
                     }
                 };
+                log::debug!("Splitting done on node: {}", self.page_number);
                 InsertResult::Splitted(mid_key.to_vec(), self, new_node)
             }
         }
@@ -470,21 +469,82 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         }
     }
 
-    // pub fn find_holes(&self) -> Vec<(usize, usize)> {
-    //     let page = self.page();
-    //     let mut cells = Vec::new();
-    //     for i in 0..self.num_cells() {
-    //         let (ptr, size) = self.cell_pointer_and_size(i);
-    //         let cell = self.cell_at(i);
-    //         cells.push((ptr as usize, size as usize));
-    //     }
-    //     cells.sort_by_key(|(start, _size)| *start);
-    //     let hole_start = cells[0].0 + cells[0].1;
-    //     // for i in 1..cells.len() {
-    //     //     holes.push((hole_start, cell[hole]));
-    //     // }
-    //     cells
-    // }
+    fn clean_holes(&mut self) {
+        let bounds = self.cell_bounds();
+        let mut collected_cells = Vec::new();
+        for i in 0..bounds.len() - 1 {
+            let bound = bounds[i];
+            let next_bound = bounds[i + 1];
+            collected_cells.push(bound);
+            let hole_size = next_bound.1 - (bound.1 + bound.2);
+            if hole_size > 0 {
+                let start = collected_cells[0].1;
+                let size = collected_cells[collected_cells.len() - 1].1
+                    + collected_cells[collected_cells.len() - 1].2
+                    - start;
+                unsafe {
+                    self.shift_slice(start, size, hole_size as isize);
+                }
+                for cell in &collected_cells {
+                    self.set_cell_pointer_and_size(
+                        cell.0 as u32,
+                        cell.1 as u16 + hole_size as u16,
+                        cell.2,
+                    );
+                }
+                collected_cells.clear();
+            }
+        }
+    }
+
+    fn children(&self) -> Vec<Node<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>> {
+        let mut children = Vec::new();
+        for i in 0..self.num_cells() {
+            children.push(self.child_pointer_of_cell(i));
+        }
+        children
+            .iter()
+            .map(|child| Node::from(self.buffer_manager, self.disk_manager, *child))
+            .collect()
+    }
+
+    fn cell_bounds(&self) -> Vec<(usize, u16, u16)> {
+        let mut bounds = Vec::new();
+        for i in 0..self.num_cells() {
+            let bound = self.cell_pointer_and_size(i);
+            bounds.push((i as usize, bound.0, bound.1));
+        }
+        bounds.sort_by_key(|bound| bound.1);
+        bounds
+    }
+
+    /// Shift a cell by an offset
+    /// ### Safety: This function does not check for boundary
+    /// of cell, so it is possible to overwrite other cells.
+    /// Will panic if the shift out of page.
+    pub unsafe fn shift_cell(&mut self, idx: u16, offset: isize) {
+        let (ptr, size) = self.cell_pointer_and_size(idx as u32);
+        assert!(
+            ptr as isize + size as isize + offset <= BLOCKSIZE as isize,
+            "Shift out of page"
+        );
+        let mut page = self.page();
+        let cell_slice = page.as_mut_ptr().add(ptr as usize);
+        let new_cell_slice = page.as_mut_ptr().add((ptr as isize + offset) as usize);
+        cell_slice.copy_to(new_cell_slice, size as usize);
+        self.set_cell_pointer_and_size(idx as u32, (ptr as isize + offset) as u16, size);
+    }
+
+    pub unsafe fn shift_slice(&mut self, ptr: u16, size: u16, offset: isize) {
+        assert!(
+            ptr as isize + size as isize + offset <= BLOCKSIZE as isize,
+            "Shift out of page"
+        );
+        let mut page = self.page();
+        let cell_slice = page.as_mut_ptr().add(ptr as usize);
+        let new_cell_slice = page.as_mut_ptr().add((ptr as isize + offset) as usize);
+        cell_slice.copy_to(new_cell_slice, size as usize);
+    }
 
     pub fn node_insert(
         mut self,

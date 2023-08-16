@@ -7,6 +7,20 @@ use crate::{
     disk_manager::DiskManager,
 };
 
+fn init<'a, const BLOCKSIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACITY: usize>(
+    file_name: &str,
+    memory: &'a [u8; MEMORY_CAPACITY],
+) -> (
+    BufferManager<'a, BLOCKSIZE, DISK_CAPACITY, MEMORY_CAPACITY>,
+    DiskManager<BLOCKSIZE, DISK_CAPACITY>,
+) {
+    let disk = disk::Disk::<BLOCKSIZE, DISK_CAPACITY>::create(file_name).unwrap();
+    let buffer_manager: BufferManager<'_, BLOCKSIZE, DISK_CAPACITY, MEMORY_CAPACITY> =
+        BufferManager::init(memory, &disk);
+    let disk_manager = DiskManager::init(&disk);
+    (buffer_manager, disk_manager)
+}
+
 use super::{node_header::NodePointer, InsertResult, Node};
 
 fn create_sample_tree<
@@ -47,6 +61,75 @@ fn create_sample_tree<
         _ => unreachable!(),
     };
     node.page_number
+}
+
+#[test]
+fn shifting_cell() {
+    const BLOCK_SIZE: usize = 4096;
+    const DISK_CAPACITY: usize = 4096 * 32;
+    const MEMORY_CAPACITY: usize = 4096 * 16;
+
+    let memory = [0; MEMORY_CAPACITY];
+    let (buffer_manager, disk_manager) =
+        init::<BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY>("shifting_cell", &memory);
+
+    let node = Node::new(NodeType::Leaf, &buffer_manager, &disk_manager);
+    let mut node = match node.node_insert(&[1, 2, 3], RowAddress::new(1, 2)) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    let (ptr, size) = node.cell_pointer_and_size(0);
+    unsafe {
+        node.shift_cell(0, -100);
+    }
+    assert_eq!(node.cell_pointer_and_size(0), (ptr - 100, size));
+    unsafe {
+        node.shift_cell(0, 100);
+    }
+    assert_eq!(node.cell_pointer_and_size(0), (ptr, size));
+    assert_eq!(node.row_address_of_cell(0), RowAddress::new(1, 2));
+}
+
+#[test]
+fn cleaning_holes() {
+    const BLOCK_SIZE: usize = 4096;
+    const DISK_CAPACITY: usize = 4096 * 32;
+    const MEMORY_CAPACITY: usize = 4096 * 16;
+
+    let memory = [0; MEMORY_CAPACITY];
+    let (buffer_manager, disk_manager) =
+        init::<BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY>("cleaning_holes", &memory);
+
+    let node = Node::new(NodeType::Leaf, &buffer_manager, &disk_manager);
+    let mut node = match node.node_insert(&[1, 2, 3], RowAddress::new(1, 2)) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    let mut node = match node.node_insert(&[4, 5, 6], RowAddress::new(2, 1)) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    unsafe {
+        node.shift_cell(1, -100);
+        node.set_cell_content_start(node.cell_content_start() - 100);
+    }
+    let mut node = match node.node_insert(&[5, 5, 6], RowAddress::new(2, 1)) {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    };
+    let bounds = node.cell_bounds();
+    println!("{:?}", bounds);
+    assert_eq!(bounds.len(), 3);
+
+    node.clean_holes();
+    let bounds = node.cell_bounds();
+    println!("{:?}", bounds);
+    assert_eq!(node.key_of_cell(0), &[1, 2, 3]);
+    assert_eq!(node.key_of_cell(1), &[4, 5, 6]);
+    assert_eq!(node.key_of_cell(2), &[5, 5, 6]);
+    assert_eq!(node.row_address_of_cell(0), RowAddress::new(1, 2));
+    assert_eq!(node.row_address_of_cell(1), RowAddress::new(2, 1));
+    assert_eq!(node.row_address_of_cell(2), RowAddress::new(2, 1));
 }
 
 #[test]
@@ -501,6 +584,7 @@ fn interior_insert_split() {
 
 #[test]
 fn node_insert_split() {
+    env_logger::try_init().unwrap_or(());
     const BLOCK_SIZE: usize = 512;
     const DISK_CAPACITY: usize = 512 * 32;
     const MEMORY_CAPACITY: usize = 512 * 16;
@@ -554,7 +638,6 @@ fn node_insert_split() {
         InsertResult::Normal(node) => node,
         _ => unreachable!(),
     };
-    println!("{:#?}", root);
     let root = match root.node_insert(&[1; 120], RowAddress::new(111, 222)) {
         InsertResult::Splitted(mid, left, right) => {
             let new_root = Node::new(NodeType::Interior, &buffer_manager, &disk_manager);
@@ -568,8 +651,5 @@ fn node_insert_split() {
         InsertResult::Normal(node) => node,
         _ => unreachable!(),
     };
-    println!("{:#?}", root);
-    assert_eq!(root.num_cells(), 1);
-    println!("{:#?}", root);
-    panic!();
+    assert_eq!(root.num_cells(), 3);
 }

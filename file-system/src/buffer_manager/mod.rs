@@ -1,13 +1,13 @@
-mod page_table;
 mod page;
+mod page_table;
 
 use std::sync::{Arc, Mutex};
 
 use disk::Disk;
 
 use crate::frame_allocator::FrameAllocator;
-pub use page_table::PageTable;
 pub use page::Page;
+pub use page_table::PageTable;
 
 pub struct BufferManager<
     'a,
@@ -67,6 +67,7 @@ impl<'a, const BLOCK_SIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPAC
                     }
                     None => {
                         let page_to_evict = self.page_table.get_oldest_page().unwrap();
+                        self.save_page(page_to_evict).unwrap();
                         log::info!("Evicting page {}", page_to_evict);
                         let frame_to_evict = self.page_table.get_frame(page_to_evict).unwrap();
                         self.page_table.unmap_page(page_to_evict);

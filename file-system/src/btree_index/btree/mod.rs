@@ -65,6 +65,33 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         }
     }
 
+    fn tree_contains_holes(&self) -> bool {
+        let buffer_manager = self.buffer_manager;
+        let disk_manager = self.disk_manager;
+        let mut queue = vec![self.root_ptr];
+        while let Some(node) = queue.pop() {
+            let node = Node::from(&buffer_manager, &disk_manager, node);
+            match node.node_type() {
+                NodeType::Leaf => {
+                    let holes = node.find_holes();
+                    if !holes.is_empty() {
+                        return true;
+                    }
+                }
+                NodeType::Interior => {
+                    let holes = node.find_holes();
+                    if !holes.is_empty() {
+                        return true;
+                    }
+                    for child in node.children() {
+                        queue.push(child.page_number);
+                    }
+                }
+            }
+        }
+        false
+    }
+
     pub fn insert(&mut self, key: &[u8], row_address: RowAddress) -> Result<(), KeyExistedError> {
         let root = Node::from(self.buffer_manager, self.disk_manager, self.root_ptr);
         self.root_ptr = {
@@ -91,11 +118,12 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
 #[test]
 fn basic_insert() {
     use rand::Rng;
+    env_logger::init();
 
     let mut rng = rand::thread_rng();
 
     const BLOCK_SIZE: usize = 512;
-    const DISK_CAPACITY: usize = 512 * 32;
+    const DISK_CAPACITY: usize = 512 * 128;
     const MEMORY_CAPACITY: usize = 512 * 16;
 
     let memory = [0; MEMORY_CAPACITY];
@@ -105,12 +133,18 @@ fn basic_insert() {
     let disk_manager = DiskManager::init(&disk);
     let mut btree = BTree::init(&buffer_manager, &disk_manager);
     for i in 0..100 {
-        let key = [i; 50];
+        let mut key = [0; 50];
+        for j in 0..50 {
+            key[j] = rng.gen();
+        }
+        println!("Insert {:?}", key);
+        let node = Node::from(&buffer_manager, &disk_manager, 1);
+        println!("{:?}", &node.page()[0..100]);
         if let Err(_) = btree.insert(&key, RowAddress::new(0, i as u32)) {
             continue;
         }
+        if btree.tree_contains_holes() {
+            panic!()
+        }
     }
-
-    println!("{:#?}", btree);
-    panic!();
 }

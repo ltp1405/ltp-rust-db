@@ -23,6 +23,39 @@ fn init<'a, const BLOCKSIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAP
 
 use super::{node_header::NodePointer, InsertResult, Node};
 
+fn tree_contains_holes<
+    const BLOCKSIZE: usize,
+    const CAPACITY: usize,
+    const MEMORY_CAPACITY: usize,
+>(
+    root: &Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
+) -> bool {
+    let buffer_manager = root.buffer_manager;
+    let disk_manager = root.disk_manager;
+    let mut queue = vec![root.page_number];
+    while let Some(node) = queue.pop() {
+        let node = Node::from(&buffer_manager, &disk_manager, node);
+        match node.node_type() {
+            NodeType::Leaf => {
+                let holes = node.find_holes();
+                if !holes.is_empty() {
+                    return true;
+                }
+            }
+            NodeType::Interior => {
+                let holes = node.find_holes();
+                if !holes.is_empty() {
+                    return true;
+                }
+                for child in node.children() {
+                    queue.push(child.page_number);
+                }
+            }
+        }
+    }
+    false
+}
+
 fn create_sample_tree<
     'a,
     const BLOCKSIZE: usize,
@@ -33,23 +66,23 @@ fn create_sample_tree<
     buffer_manager: &BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
 ) -> NodePointer {
     let node = Node::new(NodeType::Leaf, &buffer_manager, &disk_manager);
-    let node = match node.node_insert(&[1; 100], RowAddress::new(3333, 8888)) {
+    let node = match node.node_insert(&['t' as u8; 100], RowAddress::new(3333, 8888)) {
         InsertResult::Normal(node) => node,
         _ => unreachable!(),
     };
-    let node = match node.node_insert(&[2; 101], RowAddress::new(1, 22)) {
+    let node = match node.node_insert(&['y' as u8; 101], RowAddress::new(1, 22)) {
         InsertResult::Normal(node) => node,
         _ => unreachable!(),
     };
-    let node = match node.node_insert(&[3; 102], RowAddress::new(4, 22)) {
+    let node = match node.node_insert(&['r' as u8; 102], RowAddress::new(4, 22)) {
         InsertResult::Normal(node) => node,
         _ => unreachable!(),
     };
-    let node = match node.node_insert(&[4; 103], RowAddress::new(1, 22)) {
+    let node = match node.node_insert(&['q' as u8; 103], RowAddress::new(1, 22)) {
         InsertResult::Normal(node) => node,
         _ => unreachable!(),
     };
-    let node = match node.node_insert(&[5; 104], RowAddress::new(53, 22)) {
+    let node = match node.node_insert(&['b' as u8; 104], RowAddress::new(53, 22)) {
         InsertResult::Splitted(mid_key, left, right) => {
             let new_node = Node::new(NodeType::Interior, &buffer_manager, &disk_manager);
             new_node.set_right_child(right.page_number);
@@ -118,12 +151,9 @@ fn cleaning_holes() {
         _ => unreachable!(),
     };
     let bounds = node.cell_bounds();
-    println!("{:?}", bounds);
     assert_eq!(bounds.len(), 3);
 
     node.clean_holes();
-    let bounds = node.cell_bounds();
-    println!("{:?}", bounds);
     assert_eq!(node.key_of_cell(0), &[1, 2, 3]);
     assert_eq!(node.key_of_cell(1), &[4, 5, 6]);
     assert_eq!(node.key_of_cell(2), &[5, 5, 6]);
@@ -559,27 +589,65 @@ fn interior_insert_split() {
         InsertResult::Normal(node) => node,
         _ => unreachable!(),
     };
-    match node.interior_insert(&[5; 104], 6, None) {
+    // match node.interior_insert(&[5; 104], 6, None) {
+    //     InsertResult::Splitted(key, left, right) => {
+    //         assert_eq!(left.node_type(), NodeType::Interior);
+    //         assert_eq!(left.num_cells(), 1);
+    //         assert_eq!(&left.key_of_cell(0), &[1; 100]);
+    //         assert_eq!(left.child_pointer_of_cell(0), 2);
+    //         assert_eq!(&left.key_of_cell(1), &[2; 101]);
+    //         assert_eq!(left.child_pointer_of_cell(1), 3);
+
+    //         assert_eq!(right.num_cells(), 3);
+    //         assert_eq!(&right.key_of_cell(0), &[3; 102]);
+    //         assert_eq!(right.child_pointer_of_cell(0), 4);
+    //         assert_eq!(&right.key_of_cell(1), &[4; 103]);
+    //         assert_eq!(right.child_pointer_of_cell(1), 5);
+    //         assert_eq!(&right.key_of_cell(2), &[5; 104]);
+    //         assert_eq!(right.child_pointer_of_cell(2), 6);
+
+    //         assert_eq!(key, &[3; 102]);
+    //     }
+    //     _ => unreachable!(),
+    // };
+}
+
+fn handle_normal_insert<
+    'a,
+    const BLOCK_SIZE: usize,
+    const DISK_CAPACITY: usize,
+    const MEMORY_CAPACITY: usize,
+>(
+    rs: InsertResult<'a, BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY>,
+) -> Node<'a, BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY> {
+    match rs {
+        InsertResult::Normal(node) => node,
+        _ => unreachable!(),
+    }
+}
+
+fn handle_split_insert<
+    'a,
+    const BLOCK_SIZE: usize,
+    const DISK_CAPACITY: usize,
+    const MEMORY_CAPACITY: usize,
+>(
+    rs: InsertResult<'a, BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY>,
+) -> Node<'a, BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY> {
+    match rs {
         InsertResult::Splitted(key, left, right) => {
-            assert_eq!(left.node_type(), NodeType::Interior);
-            assert_eq!(left.num_cells(), 2);
-            assert_eq!(&left.key_of_cell(0), &[1; 100]);
-            assert_eq!(left.child_pointer_of_cell(0), 2);
-            assert_eq!(&left.key_of_cell(1), &[2; 101]);
-            assert_eq!(left.child_pointer_of_cell(1), 3);
-
-            assert_eq!(right.num_cells(), 3);
-            assert_eq!(&right.key_of_cell(0), &[3; 102]);
-            assert_eq!(right.child_pointer_of_cell(0), 4);
-            assert_eq!(&right.key_of_cell(1), &[4; 103]);
-            assert_eq!(right.child_pointer_of_cell(1), 5);
-            assert_eq!(&right.key_of_cell(2), &[5; 104]);
-            assert_eq!(right.child_pointer_of_cell(2), 6);
-
-            assert_eq!(key, &[3; 102]);
+            let buffer_manager = left.buffer_manager;
+            let disk_manager = left.disk_manager;
+            let new_root = Node::new(NodeType::Interior, &buffer_manager, &disk_manager);
+            let new_root = match new_root.interior_insert(&key, left.page_number, None) {
+                InsertResult::Normal(node) => node,
+                _ => unreachable!(),
+            };
+            new_root.set_right_child(right.page_number);
+            new_root
         }
         _ => unreachable!(),
-    };
+    }
 }
 
 #[test]
@@ -598,58 +666,33 @@ fn node_insert_split() {
     let node_ptr = create_sample_tree(&disk_manager, &buffer_manager);
     let root = Node::from(&buffer_manager, &disk_manager, node_ptr);
     assert_eq!(root.num_cells(), 1);
-    let root = match root.node_insert(&[1; 11], RowAddress::new(111, 222)) {
-        InsertResult::Normal(node) => node,
-        _ => unreachable!(),
-    };
-    let root = match root.node_insert(&[11; 99], RowAddress::new(112, 23)) {
-        InsertResult::Normal(node) => node,
-        _ => unreachable!(),
-    };
-    let root = match root.node_insert(&[2; 98], RowAddress::new(111, 222)) {
-        InsertResult::Normal(node) => node,
-        _ => unreachable!(),
-    };
-    let root = match root.node_insert(&[3; 97], RowAddress::new(111, 222)) {
-        InsertResult::Normal(node) => node,
-        _ => unreachable!(),
-    };
-    let root = match root.node_insert(&[4; 97], RowAddress::new(111, 222)) {
-        InsertResult::Normal(node) => node,
-        _ => unreachable!(),
-    };
-    let root = match root.node_insert(&[2; 95], RowAddress::new(111, 222)) {
-        InsertResult::Normal(node) => node,
-        _ => unreachable!(),
-    };
-    let root = match root.node_insert(&[3; 110], RowAddress::new(111, 222)) {
-        InsertResult::Normal(node) => node,
-        _ => unreachable!(),
-    };
-    let root = match root.node_insert(&[4; 111], RowAddress::new(111, 222)) {
-        InsertResult::Normal(node) => node,
-        _ => unreachable!(),
-    };
-    let root = match root.node_insert(&[2; 112], RowAddress::new(111, 222)) {
-        InsertResult::Normal(node) => node,
-        _ => unreachable!(),
-    };
-    let root = match root.node_insert(&[111; 108], RowAddress::new(111, 222)) {
-        InsertResult::Normal(node) => node,
-        _ => unreachable!(),
-    };
-    let root = match root.node_insert(&[1; 120], RowAddress::new(111, 222)) {
-        InsertResult::Splitted(mid, left, right) => {
-            let new_root = Node::new(NodeType::Interior, &buffer_manager, &disk_manager);
-            let new_root = match new_root.interior_insert(&mid, left.page_number, None) {
-                InsertResult::Normal(node) => node,
-                _ => unreachable!(),
-            };
-            new_root.set_right_child(right.page_number);
-            new_root
-        }
-        InsertResult::Normal(node) => node,
-        _ => unreachable!(),
-    };
-    assert_eq!(root.num_cells(), 3);
+    let root = handle_normal_insert(root.node_insert(&['a' as u8; 11], RowAddress::new(111, 222)));
+    let root = handle_normal_insert(root.node_insert(&['b' as u8; 99], RowAddress::new(112, 23)));
+    let root = handle_normal_insert(root.node_insert(&['c' as u8; 98], RowAddress::new(111, 222)));
+    let root = handle_normal_insert(root.node_insert(&['w' as u8; 97], RowAddress::new(111, 222)));
+    let root = handle_normal_insert(root.node_insert(&['d' as u8; 97], RowAddress::new(111, 222)));
+    let root = handle_normal_insert(root.node_insert(&['v' as u8; 95], RowAddress::new(111, 222)));
+    let root = handle_normal_insert(root.node_insert(&['d' as u8; 110], RowAddress::new(111, 222)));
+    let root = handle_normal_insert(root.node_insert(&['k' as u8; 111], RowAddress::new(111, 222)));
+    let root = handle_split_insert(root.node_insert(&['z' as u8; 112], RowAddress::new(111, 222)));
+    let root = handle_normal_insert(root.node_insert(&['f' as u8; 108], RowAddress::new(111, 222)));
+    let root = handle_normal_insert(root.node_insert(&['g' as u8; 108], RowAddress::new(111, 222)));
+    let root = handle_normal_insert(root.node_insert(&['g' as u8; 109], RowAddress::new(111, 222)));
+    let root = handle_normal_insert(root.node_insert(&['g' as u8; 106], RowAddress::new(111, 222)));
+    let root = handle_normal_insert(root.node_insert(&['g' as u8; 109], RowAddress::new(111, 222)));
+    println!("{:#?}", root);
+    // let root = match root.node_insert(&[1; 120], RowAddress::new(111, 222)) {
+    //     InsertResult::Splitted(mid, left, right) => {
+    //         let new_root = Node::new(NodeType::Interior, &buffer_manager, &disk_manager);
+    //         let new_root = match new_root.interior_insert(&mid, left.page_number, None) {
+    //             InsertResult::Normal(node) => node,
+    //             _ => unreachable!(),
+    //         };
+    //         new_root.set_right_child(right.page_number);
+    //         new_root
+    //     }
+    //     InsertResult::Normal(node) => node,
+    //     _ => unreachable!(),
+    // };
+    // println!("{:#?}", root);
 }

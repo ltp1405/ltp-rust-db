@@ -259,7 +259,8 @@ mod cell_mut {
                 Self::Leaf(_) => panic!("Leaf node does not have child pointer"),
                 Self::Interior(b) => unsafe {
                     *(b.as_ptr().add(interior_header::LEFT_CHILD_PTR.0)
-                        as *mut [u8; size_of::<NodePointer>()]) = child_pointer.to_be_bytes();
+                        as *mut [u8; size_of::<NodePointer>()])
+                        .add(interior_header::LEFT_CHILD_PTR.0) = child_pointer.to_be_bytes();
                 },
             }
         }

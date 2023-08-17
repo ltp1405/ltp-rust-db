@@ -1,5 +1,7 @@
 use std::mem::size_of;
 
+use crate::buffer_manager::Page;
+
 pub type LeafNodeKey = u32;
 pub type NodePointer = u32;
 pub type CellsCount = u32;
@@ -72,8 +74,8 @@ impl NodeHeaderReader {
             as CellContentOffset
     }
 
-    fn cell_pointers_array_start(&self) -> *const u8 {
-        unsafe { self.start.add(CELL_POINTERS_ARRAY_OFFSET) }
+    pub fn cell_pointers_array_start(&self) -> usize {
+        CELL_POINTERS_ARRAY_OFFSET
     }
 
     pub fn cell_pointer_offset(&self, cell_idx: u32) -> usize {

@@ -1,6 +1,13 @@
 mod node;
 
-use std::sync::{Arc, Mutex};
+use std::{
+    fmt::Formatter,
+    sync::{Arc, Mutex},
+};
+
+use crate::{buffer_manager::BufferManager, disk_manager::DiskManager};
+
+use self::node::{InsertResult, Node, NodePointer, NodeType};
 
 #[derive(Debug, PartialEq)]
 pub struct RowAddress {
@@ -25,71 +32,85 @@ impl RowAddress {
     }
 }
 
-// pub struct BTree {
-//     root: Node,
-// }
+pub struct BTree<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize> {
+    root_ptr: NodePointer,
+    disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
+    buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
+}
 
-// #[derive(Debug)]
-// pub struct KeyExistedError;
+impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize>
+    std::fmt::Debug for BTree<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let root = Node::from(self.buffer_manager, self.disk_manager, self.root_ptr);
+        f.debug_struct("BTree").field("root", &root).finish()
+    }
+}
 
-// impl BTree {
-//     pub fn init(pager: Arc<Mutex<Pager>>) -> Self {
-//         let new_page = pager.lock().unwrap().get_free_page().unwrap();
-//         let mut root = Node::new(new_page, pager);
-//         root.set_node_type(NodeType::Leaf);
-//         Self { root }
-//     }
+#[derive(Debug)]
+pub struct KeyExistedError;
 
-//     pub fn insert(&mut self, key: u32, payload: &[u8]) -> Result<(), KeyExistedError> {
-//         let root_clone = Node::new(self.root.page_num as usize, self.root.pager.clone());
-//         self.root = {
-//             let result = root_clone.node_insert(key, payload);
-//             match result {
-//                 InsertResult::Normal(node) => node,
-//                 InsertResult::Splitted(key, left, right) => {
-//                     let new_page = left.pager.lock().unwrap().get_free_page().unwrap();
-//                     let pager = left.pager.clone();
-//                     let mut node = Node::new(new_page as usize, pager.clone());
-//                     node.set_node_type(NodeType::Interior);
-//                     node.set_right_child(right.page_num);
-//                     let node = match node.interior_insert(key, left.page_num) {
-//                         InsertResult::Normal(node) => node,
-//                         _ => unreachable!(),
-//                     };
-//                     node
-//                 }
-//                 InsertResult::KeyExisted(_key) => return Err(KeyExistedError),
-//             }
-//         };
-//         Ok(())
-//     }
-// }
+impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize>
+    BTree<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>
+{
+    pub fn init(
+        buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
+        disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
+    ) -> Self {
+        let root = Node::new(NodeType::Leaf, buffer_manager, disk_manager);
+        Self {
+            root_ptr: root.page_number,
+            disk_manager,
+            buffer_manager,
+        }
+    }
 
-// #[test]
-// fn basic_insert() {
-//     use rand::Rng;
+    pub fn insert(&mut self, key: &[u8], row_address: RowAddress) -> Result<(), KeyExistedError> {
+        let root = Node::from(self.buffer_manager, self.disk_manager, self.root_ptr);
+        self.root_ptr = {
+            let result = root.node_insert(key, row_address);
+            match result {
+                InsertResult::Normal(node) => node.page_number,
+                InsertResult::Splitted(key, left, right) => {
+                    let new_node =
+                        Node::new(NodeType::Interior, self.buffer_manager, self.disk_manager);
+                    new_node.set_right_child(right.page_number);
+                    let node = match new_node.interior_insert(&key, left.page_number, None) {
+                        InsertResult::Normal(node) => node,
+                        _ => unreachable!(),
+                    };
+                    node.page_number
+                }
+                InsertResult::KeyExisted(_key) => return Err(KeyExistedError),
+            }
+        };
+        Ok(())
+    }
+}
 
-//     let mut rng = rand::thread_rng();
-//     let pager = Arc::new(Mutex::new(Pager::init("btree1")));
-//     let mut btree = BTree::init(pager);
-//     for i in 0..100 {
-//         let key: u32 = rng.gen();
-//         if let Err(_) = btree.insert(key, &[1, 2, 3]) {
-//             continue;
-//         }
-//     }
-//     println!("{:#?}", btree.root);
-// }
+#[test]
+fn basic_insert() {
+    use rand::Rng;
 
-// #[test]
-// fn find_holes() {
-//     let pager = Arc::new(Mutex::new(Pager::init("btree2")));
-//     let mut btree = BTree::init(pager);
-//     for i in 0..3 {
-//         if let Err(_) = btree.insert(i, &[1, 2, 3]) {
-//             continue;
-//         }
-//     }
-//     println!("{:#?}", btree.root.find_holes());
-//     panic!()
-// }
+    let mut rng = rand::thread_rng();
+
+    const BLOCK_SIZE: usize = 512;
+    const DISK_CAPACITY: usize = 512 * 32;
+    const MEMORY_CAPACITY: usize = 512 * 16;
+
+    let memory = [0; MEMORY_CAPACITY];
+    let disk = disk::Disk::<BLOCK_SIZE, DISK_CAPACITY>::create("btree_basic_insert").unwrap();
+    let buffer_manager: BufferManager<'_, BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY> =
+        BufferManager::init(&memory, &disk);
+    let disk_manager = DiskManager::init(&disk);
+    let mut btree = BTree::init(&buffer_manager, &disk_manager);
+    for i in 0..100 {
+        let key = [i; 50];
+        if let Err(_) = btree.insert(&key, RowAddress::new(0, i as u32)) {
+            continue;
+        }
+    }
+
+    println!("{:#?}", btree);
+    panic!();
+}

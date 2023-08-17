@@ -684,7 +684,6 @@ fn node_insert_split() {
     let root = handle_normal_insert(root.node_insert(&['z' as u8; 115], RowAddress::new(111, 222)));
     let root = handle_normal_insert(root.node_insert(&['z' as u8; 116], RowAddress::new(111, 222)));
     println!("{:#?}", root);
-    panic!();
     let root = handle_normal_insert(root.node_insert(&['o' as u8; 109], RowAddress::new(111, 222)));
     // let root = match root.node_insert(&[1; 120], RowAddress::new(111, 222)) {
     //     InsertResult::Splitted(mid, left, right) => {
@@ -702,44 +701,3 @@ fn node_insert_split() {
     // println!("{:#?}", root);
 }
 
-#[test]
-fn node_insert2() {
-    env_logger::try_init().unwrap_or(());
-    const BLOCK_SIZE: usize = 512;
-    const DISK_CAPACITY: usize = 512 * 32;
-    const MEMORY_CAPACITY: usize = 512 * 16;
-
-    let memory = [0; MEMORY_CAPACITY];
-    let disk = disk::Disk::<BLOCK_SIZE, DISK_CAPACITY>::create("node_insert_split2").unwrap();
-    let buffer_manager: BufferManager<'_, BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY> =
-        BufferManager::init(&memory, &disk);
-    let disk_manager = DiskManager::init(&disk);
-
-    let node_ptr = create_sample_tree(&disk_manager, &buffer_manager);
-    let root = Node::new(NodeType::Leaf, &buffer_manager, &disk_manager);
-    let root = handle_normal_insert(root.node_insert(&['a' as u8; 50], RowAddress::new(111, 222)));
-    let root = handle_normal_insert(root.node_insert(&['b' as u8; 50], RowAddress::new(112, 23)));
-    let root = handle_normal_insert(root.node_insert(&['c' as u8; 50], RowAddress::new(111, 222)));
-    let root = handle_normal_insert(root.node_insert(&['d' as u8; 50], RowAddress::new(111, 222)));
-    let root = handle_normal_insert(root.node_insert(&['e' as u8; 50], RowAddress::new(111, 222)));
-    let root = handle_normal_insert(root.node_insert(&['f' as u8; 50], RowAddress::new(111, 222)));
-    let root = handle_normal_insert(root.node_insert(&['g' as u8; 50], RowAddress::new(111, 222)));
-    let root = handle_split_insert(root.node_insert(&['h' as u8; 50], RowAddress::new(111, 222)));
-    println!("{:#?}", root);
-    panic!();
-    let root = handle_normal_insert(root.node_insert(&['o' as u8; 109], RowAddress::new(111, 222)));
-    // let root = match root.node_insert(&[1; 120], RowAddress::new(111, 222)) {
-    //     InsertResult::Splitted(mid, left, right) => {
-    //         let new_root = Node::new(NodeType::Interior, &buffer_manager, &disk_manager);
-    //         let new_root = match new_root.interior_insert(&mid, left.page_number, None) {
-    //             InsertResult::Normal(node) => node,
-    //             _ => unreachable!(),
-    //         };
-    //         new_root.set_right_child(right.page_number);
-    //         new_root
-    //     }
-    //     InsertResult::Normal(node) => node,
-    //     _ => unreachable!(),
-    // };
-    // println!("{:#?}", root);
-}

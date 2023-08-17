@@ -447,7 +447,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
                         None,
                     ) {
                         InsertResult::Normal(node) => node,
-                        _ => unreachable!(),
+                        _ => unreachable!("Insert to new node should not return splitted"),
                     };
                 }
                 let mid_child = self.child_pointer_of_cell(mid);
@@ -489,6 +489,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
                         _ => unreachable!("Maybe overflow calculation go wrong"),
                     }
                 } else {
+                    return InsertResult::KeyExisted(self);
                 }
 
                 InsertResult::Splitted(mid_key, new_left_node, self)
@@ -498,37 +499,23 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
 
     /// Return the cell pointer of the first cell
     fn clean_holes(&mut self) -> usize {
-        let mut bounds = self.cell_bounds();
-        bounds.push((0, BLOCKSIZE as u16, 0));
-        let mut collected_cells = Vec::new();
-        let idx_of_first_bound = bounds.first().unwrap().0;
-        println!("{:?}", self.cell_bounds());
-        for i in 0..bounds.len() - 1 {
-            let bound = bounds[i];
-            let next_bound = bounds[i + 1];
-            collected_cells.push(bound);
-            let hole_size = next_bound.1 - (bound.1 + bound.2);
-            if hole_size > 0 {
-                let start = collected_cells[0].1;
-                let size = collected_cells[collected_cells.len() - 1].1
-                    + collected_cells[collected_cells.len() - 1].2
-                    - start;
-                unsafe {
-                    self.shift_slice(start, size, hole_size as isize);
-                }
-                for cell in &collected_cells {
-                    self.set_cell_pointer_and_size(
-                        cell.0 as u32,
-                        cell.1 as u16 + hole_size as u16,
-                        cell.2,
-                    );
-                }
-                collected_cells.clear();
-            }
+        let mut buf: Vec<u8> = Vec::new();
+        let cell_bounds = self.cell_bounds_unsorted();
+        for i in cell_bounds.iter() {
+            buf.extend_from_slice(&self.page()[i.1 as usize..i.1 as usize + i.2 as usize]);
         }
-        println!("{:?}", self.cell_bounds());
+        self.page()[BLOCKSIZE - buf.len()..].copy_from_slice(&buf[..]);
+        let mut current_pos = BLOCKSIZE - buf.len();
+        for i in 0..self.num_cells() {
+            self.set_cell_pointer_and_size(i, current_pos as u16, cell_bounds[i as usize].2 as u16);
+            current_pos += cell_bounds[i as usize].2 as usize;
+        }
+        self.set_cell_content_start((BLOCKSIZE - buf.len()) as u16);
+        println!("{:?}", buf);
+        println!("{:?}", cell_bounds);
         assert!(self.find_holes().is_empty());
-        self.cell_bound(idx_of_first_bound as u32).0 as usize
+        println!("{:?}", self.cell_bounds());
+        BLOCKSIZE - buf.len()
     }
 
     pub(crate) fn children(&self) -> Vec<Node<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>> {
@@ -549,6 +536,15 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
             bounds.push((i as usize, bound.0, bound.1));
         }
         bounds.sort_by_key(|bound| bound.1);
+        bounds
+    }
+
+    fn cell_bounds_unsorted(&self) -> Vec<(usize, u16, u16)> {
+        let mut bounds = Vec::new();
+        for i in 0..self.num_cells() {
+            let bound = self.cell_pointer_and_size(i);
+            bounds.push((i as usize, bound.0, bound.1));
+        }
         bounds
     }
 

@@ -123,7 +123,7 @@ fn basic_insert() {
     let mut rng = rand::thread_rng();
 
     const BLOCK_SIZE: usize = 512;
-    const DISK_CAPACITY: usize = 512 * 128;
+    const DISK_CAPACITY: usize = 512 * 512;
     const MEMORY_CAPACITY: usize = 512 * 16;
 
     let memory = [0; MEMORY_CAPACITY];
@@ -132,10 +132,10 @@ fn basic_insert() {
         BufferManager::init(&memory, &disk);
     let disk_manager = DiskManager::init(&disk);
     let mut btree = BTree::init(&buffer_manager, &disk_manager);
-    for i in 0..100 {
-        let mut key = [0; 50];
+    for i in 0..1000 {
+        let mut key: [u8; 50] = [0; 50];
         for j in 0..50 {
-            key[j] = rng.gen();
+            key[j] = rng.gen::<u8>() % 128;
         }
         println!("Insert {:?}", key);
         let node = Node::from(&buffer_manager, &disk_manager, 1);

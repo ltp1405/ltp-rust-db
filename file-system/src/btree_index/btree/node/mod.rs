@@ -269,6 +269,35 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         unsafe { NodeHeaderReader::new(self.page().as_ptr()).cell_pointers_array_start() }
     }
 
+    pub fn find_row_address(&self, search_key: &[u8]) -> Option<RowAddress> {
+        match self.node_type() {
+            NodeType::Leaf => {
+                let slot = self.search(search_key);
+                match slot {
+                    Slot::Hole(_) => None,
+                    Slot::Cell(cell_num) => Some(self.row_address_of_cell(cell_num)),
+                }
+            }
+            NodeType::Interior => {
+                let slot = self.search(search_key);
+                let next = match slot {
+                    Slot::Hole(next) => next,
+                    Slot::Cell(cell_num) => cell_num + 1,
+                };
+                if next >= self.num_cells() {
+                    let right_child = self.right_child();
+                    let right_child =
+                        Node::from(self.buffer_manager, self.disk_manager, right_child);
+                    right_child.find_row_address(search_key)
+                } else {
+                    let child_pointer = self.child_pointer_of_cell(next);
+                    let child = Node::from(self.buffer_manager, self.disk_manager, child_pointer);
+                    child.find_row_address(search_key)
+                }
+            }
+        }
+    }
+
     /// Insert a payload into a leaf node
     /// Return a normal node if insert normally
     /// Return a pair of node if need split

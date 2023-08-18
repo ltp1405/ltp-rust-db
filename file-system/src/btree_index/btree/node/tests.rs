@@ -333,7 +333,6 @@ fn insert_and_search_in_leaf_node() {
     };
     assert_eq!(node.search(&keys[5].to_be_bytes()), Slot::Cell(0));
 
-    println!("{:#?}", node);
     assert_eq!(node.search(&keys[0].to_be_bytes()), Slot::Cell(1));
     assert_eq!(node.search(&keys[1].to_be_bytes()), Slot::Cell(4));
     assert_eq!(node.search(&keys[2].to_be_bytes()), Slot::Cell(2));
@@ -683,7 +682,6 @@ fn node_insert_split() {
     let root = handle_normal_insert(root.node_insert(&['z' as u8; 114], RowAddress::new(111, 222)));
     let root = handle_normal_insert(root.node_insert(&['z' as u8; 115], RowAddress::new(111, 222)));
     let root = handle_normal_insert(root.node_insert(&['z' as u8; 116], RowAddress::new(111, 222)));
-    println!("{:#?}", root);
     let root = handle_normal_insert(root.node_insert(&['o' as u8; 109], RowAddress::new(111, 222)));
     // let root = match root.node_insert(&[1; 120], RowAddress::new(111, 222)) {
     //     InsertResult::Splitted(mid, left, right) => {

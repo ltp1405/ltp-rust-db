@@ -65,31 +65,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         }
     }
 
-    fn tree_contains_holes(&self) -> bool {
-        let buffer_manager = self.buffer_manager;
-        let disk_manager = self.disk_manager;
-        let mut queue = vec![self.root_ptr];
-        while let Some(node) = queue.pop() {
-            let node = Node::from(&buffer_manager, &disk_manager, node);
-            match node.node_type() {
-                NodeType::Leaf => {
-                    let holes = node.find_holes();
-                    if !holes.is_empty() {
-                        return true;
-                    }
-                }
-                NodeType::Interior => {
-                    let holes = node.find_holes();
-                    if !holes.is_empty() {
-                        return true;
-                    }
-                    for child in node.children() {
-                        queue.push(child.page_number);
-                    }
-                }
-            }
-        }
-        false
+    pub fn find_row_address(&self, key: &[u8]) -> Option<RowAddress> {
+        let root = Node::from(self.buffer_manager, self.disk_manager, self.root_ptr);
+        root.find_row_address(key)
     }
 
     pub fn insert(&mut self, key: &[u8], row_address: RowAddress) -> Result<(), KeyExistedError> {
@@ -132,19 +110,21 @@ fn basic_insert() {
         BufferManager::init(&memory, &disk);
     let disk_manager = DiskManager::init(&disk);
     let mut btree = BTree::init(&buffer_manager, &disk_manager);
+    let mut keys = Vec::new();
     for i in 0..1000 {
-        let mut key: [u8; 50] = [0; 50];
-        for j in 0..50 {
+        let mut key: [u8; 100] = [0; 100];
+        for j in 0..100 {
             key[j] = rng.gen::<u8>() % 128;
         }
-        println!("Insert {:?}", key);
-        let node = Node::from(&buffer_manager, &disk_manager, 1);
-        println!("{:?}", &node.page()[0..100]);
+        keys.push(key);
         if let Err(_) = btree.insert(&key, RowAddress::new(0, i as u32)) {
             continue;
         }
-        if btree.tree_contains_holes() {
-            panic!()
-        }
+    }
+
+    for i in 0..1000 {
+        let row = btree.find_row_address(&keys[i]).unwrap();
+        assert_eq!(row.page_number(), 0);
+        assert_eq!(row.offset(), i as u32);
     }
 }

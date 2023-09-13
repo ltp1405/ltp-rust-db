@@ -1,17 +1,20 @@
-use std::mem::size_of;
+use std::{mem::size_of, ops::Deref};
 
 use crate::buffer_manager::Page;
 
 use super::{
-    cell::Cell,
+    cell::{self, Cell, CellMut},
     header::{FileHeader, FileNodeHeader},
 };
 
 #[derive(Debug)]
-pub enum InsertResult {
-    Normal,
-    Spill(Vec<u8>, usize),
-    OutOfSpace(Cell),
+pub enum InsertResult<'a> {
+    /// new size
+    Normal(usize),
+    /// remain payload, kept size
+    Spill(&'a [u8], usize),
+    /// payload
+    OutOfSpace(&'a [u8]),
 }
 
 pub struct Node<
@@ -22,16 +25,6 @@ pub struct Node<
 > {
     pub is_head: bool,
     pub page: Page<'a, BLOCKSIZE, DISK_CAPACITY, MEMORY_CAPACITY>,
-}
-
-#[derive(Debug)]
-pub enum ReadResult {
-    EndOfFile,
-    Normal(Cell),
-    Partial {
-        initial_payload: Vec<u8>,
-        remain: usize,
-    },
 }
 
 impl<'a, const BLOCKSIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACITY: usize>
@@ -103,44 +96,16 @@ impl<'a, const BLOCKSIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACI
         header.cell_count
     }
 
-    pub fn get_partial_record(&self, len: usize) -> Vec<u8> {
+    pub fn read_partial_record(&self, len: usize) -> Vec<u8> {
         // Partial record is always at the start of the block, after the header
         let range = FileNodeHeader::size()..FileNodeHeader::size() + len;
         self.page.as_ref()[range].to_vec()
     }
 
     /// ### Safety: Must ensure that `start` is correct
-    pub unsafe fn read_record_at(&self, start: usize) -> ReadResult {
-        let cell_size = u32::from_be_bytes(
-            self.page.as_ref()[start..start + size_of::<u32>()]
-                .try_into()
-                .unwrap(),
-        );
-        if cell_size == 0 {
-            return ReadResult::EndOfFile;
-        }
-        let payload_len = cell_size - Cell::header_size() as u32;
-        if cell_size as usize + start < BLOCKSIZE {
-            let payload_start = start + Cell::header_size();
-            let buf = self.page[payload_start..payload_start + payload_len as usize].to_vec();
-            ReadResult::Normal(Cell::new(buf))
-        } else {
-            let payload_start = start + Cell::header_size();
-            let keep = BLOCKSIZE - payload_start;
-            let buf = self.page[payload_start..payload_start + keep as usize].to_vec();
-
-            assert!(
-                payload_len >= keep as u32,
-                "payload_len: {}, keep: {}",
-                payload_len,
-                keep
-            );
-            let remain = payload_len as usize - keep;
-            ReadResult::Partial {
-                initial_payload: buf,
-                remain,
-            }
-        }
+    pub unsafe fn read_record_at(&self, start: usize) -> Option<cell::PayloadReadResult> {
+        let cell = Cell::new(start, &self.page)?;
+        Some(cell.payload())
     }
 
     pub fn set_next(&mut self, next: u32) {
@@ -174,42 +139,23 @@ impl<'a, const BLOCKSIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACI
     }
 
     pub unsafe fn delete_record_at(&mut self, start: usize) {
-        self.set_cell_count(self.cell_count() - 1);
-        let start = start + size_of::<u32>();
-        let end = start + size_of::<u8>();
-        self.page.as_mut()[start..end].copy_from_slice(&[true as u8]);
+        CellMut::new(start, self.page.as_mut()).set_delete(true);
     }
 
-    pub fn insert(&mut self, cell: Cell) -> InsertResult {
-        let offset = self.free_start();
-
-        let start = offset as usize;
-        let end = start + cell.size();
-
-        if start + Cell::header_size() > BLOCKSIZE {
-            // Not enough space to store the cell
-            // This cell should be stored in a new page
-            return InsertResult::OutOfSpace(cell);
-        }
-        if end < BLOCKSIZE {
-            // record can be inserted in a single page
-            let cell_buf = cell.serialize();
-            let cell_size = cell_buf.len();
-            self.page[start..start + cell_size as usize].copy_from_slice(&cell_buf);
-            let page_header = FileNodeHeader {
-                free_space_start: end as u32,
-                next: 0,
-            };
-            page_header.write_to(self.is_head, self.page.as_mut());
-            return InsertResult::Normal;
-        } else {
-            // record cannot be inserted in a single page and should be spilled
-            let kept_size = BLOCKSIZE - start;
-            let cell_buf = cell.serialize();
-            self.page[start..BLOCKSIZE].copy_from_slice(cell_buf[..kept_size as usize].as_ref());
-            self.set_free_start(BLOCKSIZE as u32);
-            return InsertResult::Spill(cell_buf, kept_size);
-        }
+    pub fn insert(&mut self, payload: &'a [u8]) -> InsertResult {
+        let offset = self.free_start() as usize;
+        let insert_rs = cell::insert_cell(self.page.as_mut(), offset, payload);
+        return match insert_rs {
+            InsertResult::Normal(end) => {
+                self.set_free_start(end as u32);
+                insert_rs
+            }
+            InsertResult::Spill(_remain, _kept_size) => {
+                self.set_free_start(BLOCKSIZE as u32);
+                insert_rs
+            }
+            InsertResult::OutOfSpace(_payload) => insert_rs,
+        };
     }
 }
 
@@ -218,9 +164,7 @@ mod tests {
     use disk::Disk;
 
     use crate::{
-        buffer_manager::BufferManager,
-        disk_manager::DiskManager,
-        unordered_file::{cell::Cell, node::Node},
+        buffer_manager::BufferManager, disk_manager::DiskManager, unordered_file::node::Node,
     };
 
     #[test]
@@ -250,12 +194,12 @@ mod tests {
         let memory = vec![0; MEMORY_SIZE];
         let buffer_manager: BufferManager<512, 65536, MEMORY_SIZE> =
             BufferManager::init(&memory, &disk);
+        let buf = vec![0xa; 400];
+        let buf2 = vec![0xa; 400];
         let mut node: Node<'_, 512, 65536, MEMORY_SIZE> =
             Node::new(true, buffer_manager.get_page(block1));
-        let buf = vec![0xa; 400];
-        node.insert(Cell::new(buf));
-        let buf = vec![0xa; 200];
-        let rs = node.insert(Cell::new(buf));
+        node.insert(&buf);
+        let rs = node.insert(&buf2);
         let mut node2: Node<'_, 512, 65536, MEMORY_SIZE> =
             Node::new(false, buffer_manager.get_page(block1));
         // match rs {

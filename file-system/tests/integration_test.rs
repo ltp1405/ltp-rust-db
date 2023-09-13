@@ -11,30 +11,30 @@ fn no_replacement() {
     let disk = Disk::create("no_replacement").unwrap();
     let disk_manager = DiskManager::init(&disk);
     let cells = vec![
-        Cell::new([0x1; 17].to_vec()),
-        Cell::new([0x1; 17].to_vec()),
-        Cell::new([0x2; 51].to_vec()),
-        Cell::new([0x1; 17].to_vec()),
-        Cell::new([0x2; 51].to_vec()),
-        Cell::new([0x1; 17].to_vec()),
-        Cell::new([0x2; 51].to_vec()),
-        Cell::new([0x6; 117].to_vec()),
-        Cell::new([0x4; 246].to_vec()),
-        Cell::new([0xe; 123].to_vec()),
-        Cell::new([0x5; 410].to_vec()),
-        Cell::new([0x3; 100].to_vec()),
-        Cell::new([0x4; 204].to_vec()),
-        Cell::new([0xe; 123].to_vec()),
-        Cell::new([0x5; 400].to_vec()),
-        Cell::new([0x3; 105].to_vec()),
-        Cell::new([0x4; 200].to_vec()),
-        Cell::new([0xe; 123].to_vec()),
-        Cell::new([0x5; 400].to_vec()),
-        Cell::new([0x2; 51].to_vec()),
-        Cell::new([0x3; 106].to_vec()),
-        Cell::new([0x4; 200].to_vec()),
-        Cell::new([0xe; 123].to_vec()),
-        Cell::new([0x5; 400].to_vec()),
+        [0x1; 17].to_vec(),
+        [0x1; 17].to_vec(),
+        [0x2; 51].to_vec(),
+        [0x1; 17].to_vec(),
+        [0x2; 51].to_vec(),
+        [0x1; 17].to_vec(),
+        [0x2; 51].to_vec(),
+        [0x6; 117].to_vec(),
+        [0x4; 246].to_vec(),
+        [0xe; 123].to_vec(),
+        [0x5; 410].to_vec(),
+        [0x3; 100].to_vec(),
+        [0x4; 204].to_vec(),
+        [0xe; 123].to_vec(),
+        [0x5; 400].to_vec(),
+        [0x3; 105].to_vec(),
+        [0x4; 200].to_vec(),
+        [0xe; 123].to_vec(),
+        [0x5; 400].to_vec(),
+        [0x2; 51].to_vec(),
+        [0x3; 106].to_vec(),
+        [0x4; 200].to_vec(),
+        [0xe; 123].to_vec(),
+        [0x5; 400].to_vec(),
     ];
 
     {
@@ -48,10 +48,10 @@ fn no_replacement() {
         let file1 = file_system.create_file("file1").unwrap();
         let file2 = file_system.create_file("file2").unwrap();
         for cell in cells.clone().iter() {
-            file1.insert(cell.clone());
+            file1.insert(cell);
         }
         for cell in cells.iter() {
-            file2.insert(cell.clone());
+            file2.insert(cell);
         }
 
         file_system.save_files_table();
@@ -97,30 +97,21 @@ fn need_replacement() {
     let disk_manager = DiskManager::init(&disk);
     let mut cells = vec![];
     let chunk = vec![
-        Cell::new([0x1; 17].to_vec()),
-        Cell::new([0x1; 17].to_vec()),
-        Cell::new([0x2; 51].to_vec()),
-        Cell::new([0x1; 17].to_vec()),
-        Cell::new([0x2; 51].to_vec()),
-        Cell::new([0x1; 17].to_vec()),
-        Cell::new([0x2; 51].to_vec()),
-        Cell::new([0x6; 117].to_vec()),
-        Cell::new([0x4; 246].to_vec()),
-        Cell::new([0xe; 123].to_vec()),
-        Cell::new([0x5; 410].to_vec()),
-        Cell::new([0x3; 100].to_vec()),
-        Cell::new([0x4; 204].to_vec()),
-        Cell::new([0xe; 123].to_vec()),
-        Cell::new([0x5; 400].to_vec()),
-        Cell::new([0x3; 105].to_vec()),
-        Cell::new([0x4; 200].to_vec()),
-        Cell::new([0xe; 123].to_vec()),
-        Cell::new([0x5; 400].to_vec()),
-        Cell::new([0x2; 51].to_vec()),
-        Cell::new([0x3; 106].to_vec()),
-        Cell::new([0x4; 200].to_vec()),
-        Cell::new([0xe; 123].to_vec()),
-        Cell::new([0x5; 400].to_vec()),
+        [0x1; 17].to_vec(),
+        [0x2; 17].to_vec(),
+        [0x3; 51].to_vec(),
+        [0x4; 17].to_vec(),
+        [0x5; 51].to_vec(),
+        [0x6; 17].to_vec(),
+        [0x7; 51].to_vec(),
+        [0x8; 117].to_vec(),
+        [0x9; 246].to_vec(),
+        [0xa; 123].to_vec(),
+        [0xb; 410].to_vec(),
+        [0xc; 100].to_vec(),
+        [0xd; 204].to_vec(),
+        [0xe; 123].to_vec(),
+        [0xf; 400].to_vec(),
     ];
     for _ in 0..100 {
         cells.extend(chunk.clone());
@@ -137,10 +128,10 @@ fn need_replacement() {
         let file1 = file_system.create_file("file1").unwrap();
         let file2 = file_system.create_file("file2").unwrap();
         for cell in cells.clone().iter() {
-            file1.insert(cell.clone());
+            file1.insert(cell);
         }
         for cell in cells.iter() {
-            file2.insert(cell.clone());
+            file2.insert(cell);
         }
 
         file_system.save_files_table();

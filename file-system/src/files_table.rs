@@ -45,19 +45,17 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
     pub fn add_file(&self, name: &str, block_number: u32) {
         let mut buf = name.as_bytes().to_vec();
         buf.extend_from_slice(block_number.to_be_bytes().as_ref());
-        self.file.insert(Cell::new(buf))
+        self.file.insert(&buf);
     }
 
     pub fn search_file(&'a self, name: &str) -> Option<u32> {
-        let buf = name.as_bytes().to_vec();
+        let search_name = name.as_bytes().to_vec();
         let cursor = self.file.cursor();
         for cell in cursor {
-            if cell.payload_len() - size_of::<u32>() == buf.len() {
-                let cell_buf = &cell[0..buf.len()];
-                if cell_buf == &buf {
-                    let mut block_number = [0; 4];
-                    block_number.copy_from_slice(&cell[buf.len()..]);
-                    return Some(u32::from_be_bytes(block_number));
+            if cell.len() - size_of::<u32>() == search_name.len() {
+                let cell_name = &cell[0..search_name.len()];
+                if cell_name == &search_name {
+                    return Some(u32::from_be_bytes(cell[name.len()..].try_into().unwrap()));
                 }
             }
         }
@@ -91,9 +89,9 @@ mod tests {
                 &disk_manager,
             );
             let file = File::init(&disk_manager, &buffer_manager);
-            file.insert(Cell::new("test".as_bytes().to_vec()));
-            file.insert(Cell::new("test".as_bytes().to_vec()));
-            file.insert(Cell::new("test".as_bytes().to_vec()));
+            file.insert("test".as_bytes());
+            file.insert("test".as_bytes());
+            file.insert("test".as_bytes());
             files_table.add_file("test", 1);
             files_table.add_file("test2", 2);
             files_table.add_file("test3", 3);

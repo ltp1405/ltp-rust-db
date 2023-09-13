@@ -3,9 +3,9 @@ use std::mem::size_of;
 use crate::buffer_manager::BufferManager;
 
 use super::{
-    cell::Cell,
+    cell::{Cell, PayloadReadResult},
     header::{FileHeader, FileNodeHeader},
-    node::{Node, ReadResult},
+    node::Node,
 };
 
 pub struct Cursor<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize> {
@@ -20,7 +20,7 @@ pub struct Cursor<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMOR
 impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize> Iterator
     for Cursor<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>
 {
-    type Item = Cell;
+    type Item = Vec<u8>;
     fn next(&mut self) -> Option<Self::Item> {
         self.cur_cell.set(self.cur_cell.get() + 1);
         if self.cur_cell.get() > self.cell_count {
@@ -50,42 +50,34 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         }
     }
 
-    pub fn read(&self) -> Option<Cell> {
+    pub fn read(&self) -> Option<Vec<u8>> {
         let page = self.buffer_manager.get_page(self.block_number.get());
         let node: Node<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
             Node::from_page(self.at_head.get(), page);
-        let rs = unsafe { node.read_record_at(self.offset.get()) };
+        let rs = unsafe { node.read_record_at(self.offset.get()) }?;
         match rs {
-            ReadResult::EndOfFile => None,
-            ReadResult::Normal(record) => Some(record),
-            ReadResult::Partial {
-                initial_payload: mut initial,
+            PayloadReadResult::InPage { payload } => {
+                Some(payload.to_vec())
+            }
+            PayloadReadResult::InOverflow {
+                initial_payload,
                 remain,
             } => {
+                let mut payload = initial_payload.to_vec();
                 let next_block = node.next().unwrap();
                 let page = self.buffer_manager.get_page(next_block);
                 let node: Node<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> = Node::from_page(false, page);
-                let remain = node.get_partial_record(remain);
-                initial.extend(remain);
-                Some(Cell::new(initial))
+                let remain = node.read_partial_record(remain);
+                payload.extend(remain);
+                Some(payload)
             }
         }
     }
 
     pub fn advance(&self) {
         let page = self.buffer_manager.get_page(self.block_number.get());
-        let is_deleted = u8::from_be_bytes(
-            page.as_ref()[self.offset.get()..self.offset.get() + size_of::<u8>()]
-                .try_into()
-                .unwrap(),
-        ) != 0;
-        let len = u32::from_be_bytes(
-            page.as_ref()[self.offset.get()..self.offset.get() + size_of::<u32>()]
-                .try_into()
-                .unwrap(),
-        );
-        assert!(len > 0 && len < BLOCKSIZE as u32, "len: {}", len);
-        let next_offset = self.offset.get() + len as usize;
+        let cell = unsafe { Cell::new(self.offset.get(), &page) }.unwrap();
+        let next_offset = self.offset.get() + cell.payload_size() + Cell::header_size();
         if next_offset <= BLOCKSIZE - Cell::header_size() {
             self.offset.set(next_offset);
         } else if next_offset >= BLOCKSIZE - Cell::header_size() && next_offset < BLOCKSIZE {
@@ -103,6 +95,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
                 .set(next_offset - BLOCKSIZE + FileNodeHeader::size());
             self.at_head.set(false);
         }
+        if cell.is_delete() {
+            self.advance()
+        }
     }
 
     pub fn delete(&self) {
@@ -111,6 +106,40 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
             Node::from_page(self.at_head.get(), page);
         unsafe {
             node.delete_record_at(self.offset.get());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use disk::Disk;
+
+    use crate::{buffer_manager::BufferManager, disk_manager::DiskManager, unordered_file::File};
+
+    #[test]
+    fn basic() {
+        let disk = Disk::<512, 65536>::create("basic_cursor_test").unwrap();
+        let disk_manager = DiskManager::init(&disk);
+        const MEMORY_SIZE: usize = 512 * 16;
+        let memory = vec![0; MEMORY_SIZE];
+        let buffer_manager: BufferManager<512, 65536, MEMORY_SIZE> =
+            BufferManager::init(&memory, &disk);
+        let file = File::init(&disk_manager, &buffer_manager);
+        let records = vec![
+            [0x2; 51].to_vec(),
+            [0x2; 200].to_vec(),
+            [0x2; 412].to_vec(),
+            [0x1; 17].to_vec(),
+            // [0x1; 17].to_vec(),
+            // [0x2; 51].to_vec(),
+            // [0x1; 17].to_vec(),
+        ];
+        for record in records.clone() {
+            file.insert(&record)
+        }
+
+        for (i, record) in file.cursor().enumerate() {
+            assert_eq!(records[i], record);
         }
     }
 }

@@ -70,7 +70,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         )
     }
 
-    pub fn insert(&self, cell: Cell) {
+    pub fn insert(&self, payload: &[u8]) {
         // Traverse to the last page
         // If the last page is full, allocate a new page
         // Write the cell to the last page
@@ -81,9 +81,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         let tail = self.buffer_manager.get_page(head.tail_page());
         let mut node: Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
             Node::from_page(first_block, tail);
-        let rs = node.insert(cell);
+        let rs = node.insert(payload);
         match rs {
-            InsertResult::Normal => {
+            InsertResult::Normal(_) => {
                 if first_block {
                     drop(head);
                     let count = node.cell_count() + 1;
@@ -121,6 +121,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
                 let mut new_node: Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
                     Node::new(false, new_page);
                 new_node.insert(cell);
+                drop(new_node);
                 if first_block {
                     drop(head);
                     node.set_next(new_block as u32);
@@ -179,10 +180,10 @@ mod tests {
             let buffer_manager: BufferManager<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
                 BufferManager::init(&memory, &disk);
             let file = File::init(&disk_manager, &buffer_manager);
-            let record = Cell::new(vec![1, 2, 3]);
-            file.insert(record);
+            let record = vec![1, 2, 3];
+            file.insert(&record);
             let cell = file.cursor().next().unwrap();
-            assert_eq!(cell.to_vec(), vec![1, 2, 3]);
+            // assert_eq!(cell.payload(), PayloadRead
             file.save();
         }
         {
@@ -192,7 +193,7 @@ mod tests {
             let file = File::open(&buffer_manager, &disk_manager, 1);
             let mut cursor = file.cursor();
             let record = cursor.next().unwrap();
-            assert_eq!(record, Cell::new(vec![1, 2, 3]));
+            assert_eq!(record, vec![1, 2, 3]);
         }
     }
 

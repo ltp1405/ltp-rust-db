@@ -69,6 +69,5 @@ mod tests {
         let schema2 = table.load_schema();
 
         assert_eq!(schema, schema2);
-        panic!();
     }
 }

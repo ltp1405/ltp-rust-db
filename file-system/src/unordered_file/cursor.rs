@@ -9,6 +9,7 @@ use super::{
 };
 
 pub struct Cursor<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize> {
+    head_number: std::cell::Cell<u32>,
     block_number: std::cell::Cell<u32>,
     offset: std::cell::Cell<usize>,
     cell_count: u64,
@@ -26,6 +27,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         if self.cur_cell.get() > self.cell_count {
             return None;
         }
+        self.skip_delete();
         let cell = { self.read() };
         self.advance();
         cell
@@ -41,6 +43,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         buffer_manager: &'a BufferManager<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
     ) -> Self {
         Self {
+            head_number: std::cell::Cell::new(head_block_number),
             cur_cell: std::cell::Cell::new(0),
             cell_count,
             block_number: std::cell::Cell::new(head_block_number),
@@ -55,10 +58,8 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         let node: Node<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
             Node::from_page(self.at_head.get(), page);
         let rs = unsafe { node.read_record_at(self.offset.get()) }?;
-        match rs {
-            PayloadReadResult::InPage { payload } => {
-                Some(payload.to_vec())
-            }
+        match rs.payload() {
+            PayloadReadResult::InPage { payload } => Some(payload.to_vec()),
             PayloadReadResult::InOverflow {
                 initial_payload,
                 remain,
@@ -74,9 +75,27 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         }
     }
 
+    pub fn skip_delete(&self) {
+        loop {
+            let page = self.buffer_manager.get_page(self.block_number.get());
+            let node: Node<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
+                Node::from_page(self.at_head.get(), page);
+            let rs = unsafe { node.read_record_at(self.offset.get()) }.unwrap();
+            if !rs.is_delete() {
+                return;
+            }
+            self.advance();
+        }
+    }
+
     pub fn advance(&self) {
+        println!("advance");
         let page = self.buffer_manager.get_page(self.block_number.get());
-        let cell = unsafe { Cell::new(self.offset.get(), &page) }.unwrap();
+        let cell = unsafe { Cell::new(self.offset.get(), &page) };
+        let cell = match cell {
+            Some(cell) => cell,
+            None => return,
+        };
         let next_offset = self.offset.get() + cell.payload_size() + Cell::header_size();
         if next_offset <= BLOCKSIZE - Cell::header_size() {
             self.offset.set(next_offset);
@@ -95,18 +114,17 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
                 .set(next_offset - BLOCKSIZE + FileNodeHeader::size());
             self.at_head.set(false);
         }
-        if cell.is_delete() {
-            self.advance()
-        }
     }
 
     pub fn delete(&self) {
         let page = self.buffer_manager.get_page(self.block_number.get());
-        let mut node: Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> =
-            Node::from_page(self.at_head.get(), page);
+        let mut node = Node::from_page(self.at_head.get(), page);
         unsafe {
             node.delete_record_at(self.offset.get());
         }
+        let head_page = self.buffer_manager.get_page(self.head_number.get());
+        let mut head = Node::from_page(true, head_page);
+        head.set_cell_count(head.cell_count() - 1);
     }
 }
 
@@ -115,6 +133,40 @@ mod tests {
     use disk::Disk;
 
     use crate::{buffer_manager::BufferManager, disk_manager::DiskManager, unordered_file::File};
+
+    #[test]
+    fn basic_insert_delete() {
+        let disk = Disk::<512, 65536>::create("cursor::basic_insert_delete").unwrap();
+        let disk_manager = DiskManager::init(&disk);
+        const MEMORY_SIZE: usize = 512 * 16;
+        let memory = vec![0; MEMORY_SIZE];
+        let buffer_manager: BufferManager<512, 65536, MEMORY_SIZE> =
+            BufferManager::init(&memory, &disk);
+        let file = File::init(&disk_manager, &buffer_manager);
+        let records = vec![[0x2; 51].to_vec(), [0x3; 200].to_vec(), [0x4; 412].to_vec()];
+        file.insert(&records[0]);
+        file.insert(&records[1]);
+        file.insert(&records[2]);
+        let cursor = file.cursor();
+        cursor.advance();
+        cursor.delete();
+        let cursor = file.cursor();
+        let mut iter = cursor.into_iter();
+        assert_eq!(iter.next().unwrap(), records[0]);
+        assert_eq!(iter.next().unwrap(), records[2]);
+
+        let cursor = file.cursor();
+        cursor.delete();
+        let cursor = file.cursor();
+        let mut iter = cursor.into_iter();
+        assert_eq!(iter.next().unwrap(), records[2]);
+
+        let cursor = file.cursor();
+        cursor.delete();
+        let cursor = file.cursor();
+        let mut iter = cursor.into_iter();
+        assert_eq!(iter.next(), None);
+    }
 
     #[test]
     fn basic() {
@@ -130,9 +182,9 @@ mod tests {
             [0x2; 200].to_vec(),
             [0x2; 412].to_vec(),
             [0x1; 17].to_vec(),
-            // [0x1; 17].to_vec(),
-            // [0x2; 51].to_vec(),
-            // [0x1; 17].to_vec(),
+            [0x1; 17].to_vec(),
+            [0x2; 51].to_vec(),
+            [0x1; 17].to_vec(),
         ];
         for record in records.clone() {
             file.insert(&record)

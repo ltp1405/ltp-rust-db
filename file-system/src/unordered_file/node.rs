@@ -103,9 +103,9 @@ impl<'a, const BLOCKSIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACI
     }
 
     /// ### Safety: Must ensure that `start` is correct
-    pub unsafe fn read_record_at(&self, start: usize) -> Option<cell::PayloadReadResult> {
+    pub unsafe fn read_record_at(&self, start: usize) -> Option<Cell> {
         let cell = Cell::new(start, &self.page)?;
-        Some(cell.payload())
+        Some(cell)
     }
 
     pub fn set_next(&mut self, next: u32) {

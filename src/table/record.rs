@@ -1,7 +1,5 @@
 use std::mem::size_of;
 
-use file_system::unordered_file::Cell;
-
 use super::schema::{DataType, Schema};
 
 #[derive(Debug, PartialEq, Clone)]
@@ -24,14 +22,6 @@ pub struct Record<'a> {
 }
 
 impl<'a> Record<'a> {
-    pub fn from_cell(schema: &'a Schema, cell: Cell) -> Record {
-        Record::from_bytes(schema, cell.to_bytes())
-    }
-
-    pub fn to_cell(self) -> Cell {
-        Cell::from_bytes(self.to_bytes())
-    }
-
     pub fn to_bytes(self) -> Vec<u8> {
         let mut buf: Vec<u8> = Vec::new();
         for (i, field) in self.data.into_iter().enumerate() {
@@ -189,10 +179,10 @@ mod tests {
     fn test_record() {
         let schema = Schema {
             schema: vec![
-                DataType::Char(10),
-                DataType::Bool,
-                DataType::UInt,
-                DataType::VarChar(255),
+                (String::new(), DataType::Char(10)),
+                (String::new(), DataType::Bool),
+                (String::new(), DataType::UInt),
+                (String::new(), DataType::VarChar(255)),
             ],
         };
         let record = Record {

@@ -15,66 +15,80 @@ pub enum DataType {
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Schema {
-    pub schema: Vec<DataType>,
+    pub schema: Vec<(String, DataType)>,
 }
 
 impl Schema {
     pub fn get_field_type(&self, index: usize) -> &DataType {
-        &self.schema[index]
+        &self.schema[index].1
     }
 
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut buf = Vec::new();
+    pub fn serialize(&self) -> Vec<Vec<u8>> {
+        let mut v = Vec::new();
         for field in &self.schema {
-            match field {
+            v.push(Vec::new());
+            match field.1 {
                 DataType::Char(n) => {
-                    buf.push(b'c');
-                    buf.extend_from_slice(&n.to_be_bytes());
+                    v.last_mut().unwrap().push(b'c');
+                    v.last_mut().unwrap().extend_from_slice(&n.to_be_bytes());
                 }
-                DataType::Bool => buf.push(b'b'),
-                DataType::UInt => buf.push(b'u'),
-                DataType::Int => buf.push(b'i'),
-                DataType::Float => buf.push(b'f'),
+                DataType::Bool => v.last_mut().unwrap().push(b'b'),
+                DataType::UInt => v.last_mut().unwrap().push(b'u'),
+                DataType::Int => v.last_mut().unwrap().push(b'i'),
+                DataType::Float => v.last_mut().unwrap().push(b'f'),
                 DataType::VarChar(n) => {
-                    buf.push(b'v');
-                    buf.extend_from_slice(&n.to_be_bytes());
+                    v.last_mut().unwrap().push(b'v');
+                    v.last_mut().unwrap().extend_from_slice(&n.to_be_bytes());
                 }
                 _ => todo!(),
             }
-            buf.push(b'|');
         }
-        buf.pop();
-        buf.push(b'\n');
-        buf
+        v.into_iter()
+            .enumerate()
+            .map(|(i, mut item)| {
+                item.extend(self.schema[i].0.as_bytes());
+                item
+            })
+            .collect()
     }
 
-    pub fn from_bytes(buf: &[u8]) -> Self {
-        let mut schema: Vec<DataType> = Vec::new();
-        if buf.len() == 0 {
-            return Self { schema };
-        } else if buf.last().unwrap() != &b'\n' {
-            panic!("Invalid schema, no newline");
-        }
-        let buf = &buf[..buf.len() - 1];
-        let fields = buf.split(|&c| c == b'|');
+    pub fn deserialize(fields: Vec<Vec<u8>>) -> Option<Self> {
+        let mut fieldtypes: Vec<DataType> = Vec::new();
+        let mut fieldnames: Vec<String> = Vec::new();
         for field in fields {
             match field[0] {
                 b'c' => {
                     let n = u32::from_be_bytes(field[1..1 + size_of::<u32>()].try_into().unwrap());
-                    schema.push(DataType::Char(n));
+                    fieldtypes.push(DataType::Char(n));
+                    fieldnames.push(String::from_utf8(field[5..].to_vec()).unwrap());
                 }
-                b'b' => schema.push(DataType::Bool),
-                b'u' => schema.push(DataType::UInt),
-                b'i' => schema.push(DataType::Int),
-                b'f' => schema.push(DataType::Float),
+                b'b' => {
+                    fieldtypes.push(DataType::Bool);
+                    fieldnames.push(String::from_utf8(field[1..].to_vec()).unwrap());
+                }
+                b'u' => {
+                    fieldtypes.push(DataType::UInt);
+                    fieldnames.push(String::from_utf8(field[1..].to_vec()).unwrap());
+                }
+                b'i' => {
+                    fieldtypes.push(DataType::Int);
+                    fieldnames.push(String::from_utf8(field[1..].to_vec()).unwrap());
+                }
+                b'f' => {
+                    fieldtypes.push(DataType::Float);
+                    fieldnames.push(String::from_utf8(field[1..].to_vec()).unwrap());
+                }
                 b'v' => {
                     let n = u32::from_be_bytes(field[1..1 + size_of::<u32>()].try_into().unwrap());
-                    schema.push(DataType::VarChar(n));
+                    fieldtypes.push(DataType::VarChar(n));
+                    fieldnames.push(String::from_utf8(field[5..].to_vec()).unwrap());
                 }
-                _ => panic!("Invalid schema"),
+                _ => return None,
             }
         }
-        Self { schema }
+        Some(Self {
+            schema: fieldnames.into_iter().zip(fieldtypes.into_iter()).collect(),
+        })
     }
 }
 
@@ -86,33 +100,33 @@ mod tests {
     fn test_schema() {
         let schema = Schema {
             schema: vec![
-                DataType::Char(10),
-                DataType::Bool,
-                DataType::UInt,
-                DataType::Int,
-                DataType::Float,
-                DataType::VarChar(20),
+                (String::from("sldgnnq"), DataType::Char(10)),
+                (String::new(), DataType::Bool),
+                (String::new(), DataType::UInt),
+                (String::from("f;ljkdjsbdg"), DataType::Int),
+                (String::from("sldklaldng"), DataType::Float),
+                (String::from("slnhshwker;hypwi"), DataType::VarChar(20)),
             ],
         };
-        let buf = schema.to_bytes();
-        let schema2 = Schema::from_bytes(&buf);
-        assert_eq!(schema.schema, schema2.schema);
+        let buf = schema.serialize();
+        let schema2 = Schema::deserialize(buf);
+        assert_eq!(schema.schema, schema2.unwrap().schema);
     }
 
     #[test]
     fn more_schema() {
         let schema = Schema {
             schema: vec![
-                DataType::Char(10),
-                DataType::Bool,
-                DataType::UInt,
-                DataType::Int,
-                DataType::Float,
-                DataType::VarChar(255),
+                (String::new(), DataType::Char(10)),
+                (String::new(), DataType::Bool),
+                (String::new(), DataType::UInt),
+                (String::new(), DataType::Int),
+                (String::new(), DataType::Float),
+                (String::new(), DataType::VarChar(255)),
             ],
         };
-        let buf = schema.to_bytes();
-        let schema2 = Schema::from_bytes(&buf);
-        assert_eq!(schema.schema, schema2.schema);
+        let buf = schema.serialize();
+        let schema2 = Schema::deserialize(buf);
+        assert_eq!(schema.schema, schema2.unwrap().schema);
     }
 }

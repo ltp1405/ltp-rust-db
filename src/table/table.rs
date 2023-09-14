@@ -1,39 +1,32 @@
 use super::record::Record;
 
-use file_system::{
-    free_space_manager::FreeSpaceManager,
-    unordered_file::{Cursor, File},
-};
+use file_system::unordered_file::{Cursor, File};
 
-pub struct Table<const BLOCKSIZE: usize, const CAPACITY: usize> {
-    file: File<BLOCKSIZE, CAPACITY>,
+pub struct Table<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize> {
+    file: File<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
 }
 
-impl<const BLOCKSIZE: usize, const CAPACITY: usize> Table<BLOCKSIZE, CAPACITY> {
-    pub fn init(
-        disk: &disk::Disk<BLOCKSIZE, CAPACITY>,
-        disk_manager: &FreeSpaceManager<BLOCKSIZE, CAPACITY>,
-    ) -> Self {
-        let file = File::init(disk, disk_manager);
+impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize>
+    Table<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>
+{
+    pub fn new(file: File<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>) -> Self {
         Self { file }
     }
 
     pub fn insert(&mut self, record: Record) {
-        let cell = record.to_cell();
+        let cell = &record.to_bytes();
         self.file.insert(cell);
     }
 
-    pub fn cursor(&self) -> Cursor<BLOCKSIZE, CAPACITY> {
+    pub fn cursor(&'a self) -> Cursor<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> {
         self.file.cursor()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::fs::remove_file;
-
     use disk::Disk;
-    use file_system::free_space_manager::FreeSpaceManager;
+    use file_system::{buffer_manager::BufferManager, disk_manager::DiskManager, FileSystem};
 
     use crate::table::{
         record::{Field, Record},
@@ -45,15 +38,20 @@ mod tests {
     #[test]
     fn basic() {
         let disk = disk::Disk::<4096, 819200>::create("table_basic").unwrap();
-        let disk_manager = FreeSpaceManager::init(&disk);
-        let mut table = Table::init(&disk, &disk_manager);
+        const MEMORY_CAPACITY: usize = 4096 * 32;
+        let memory = [0; MEMORY_CAPACITY];
+        let buffer_manager: BufferManager<4096, 819200, MEMORY_CAPACITY> =
+            BufferManager::init(&memory, &disk);
+        let disk_manager = DiskManager::init(&disk);
+        let file_system = FileSystem::init(&buffer_manager, &disk_manager).unwrap();
+        let mut table = Table::new(file_system.create_file("test1").unwrap());
 
         let schema = Schema {
             schema: vec![
-                DataType::Char(10),
-                DataType::Bool,
-                DataType::UInt,
-                DataType::VarChar(255),
+                (String::new(), DataType::Char(10)),
+                (String::new(), DataType::Bool),
+                (String::new(), DataType::UInt),
+                (String::new(), DataType::VarChar(255)),
             ],
         };
         let record = Record {
@@ -73,22 +71,27 @@ mod tests {
 
         let mut cursor = table.cursor();
         let r = cursor.read();
-        let record2 = Record::from_bytes(&schema, r.unwrap().to_bytes());
+        let record2 = Record::from_bytes(&schema, r.unwrap());
         assert_eq!(record, record2);
     }
 
     #[test]
     fn simple_insert() {
         let disk = disk::Disk::<4096, 819200>::create("table_simple_insert").unwrap();
-        let disk_manager = FreeSpaceManager::init(&disk);
-        let mut table = Table::init(&disk, &disk_manager);
+        const MEMORY_CAPACITY: usize = 4096 * 32;
+        let memory = [0; MEMORY_CAPACITY];
+        let buffer_manager: BufferManager<4096, 819200, MEMORY_CAPACITY> =
+            BufferManager::init(&memory, &disk);
+        let disk_manager = DiskManager::init(&disk);
+        let file_system = FileSystem::init(&buffer_manager, &disk_manager).unwrap();
+        let mut table = Table::new(file_system.create_file("test1").unwrap());
 
         let schema = Schema {
             schema: vec![
-                DataType::Char(10),
-                DataType::Bool,
-                DataType::UInt,
-                DataType::VarChar(255),
+                (String::new(), DataType::Char(10)),
+                (String::new(), DataType::Bool),
+                (String::new(), DataType::UInt),
+                (String::new(), DataType::VarChar(255)),
             ],
         };
         let record = Record {
@@ -106,7 +109,7 @@ mod tests {
         }
 
         for r in table.cursor() {
-            let record2 = Record::from_bytes(&schema, r.to_bytes());
+            let record2 = Record::from_bytes(&schema, r);
             assert_eq!(record, record2);
         }
     }
@@ -115,23 +118,28 @@ mod tests {
     fn big_record_insert() {
         const CAPACITY: usize = 512 * 4096;
         let disk = Disk::<4096, CAPACITY>::create("table_big_record_insert").unwrap();
-        let disk_manager = FreeSpaceManager::init(&disk);
-        let mut table = Table::init(&disk, &disk_manager);
+        const MEMORY_CAPACITY: usize = 4096 * 32;
+        let memory = [0; MEMORY_CAPACITY];
+        let buffer_manager: BufferManager<4096, CAPACITY, MEMORY_CAPACITY> =
+            BufferManager::init(&memory, &disk);
+        let disk_manager = DiskManager::init(&disk);
+        let file_system = FileSystem::init(&buffer_manager, &disk_manager).unwrap();
+        let mut table = Table::new(file_system.create_file("test1").unwrap());
 
         let schema = Schema {
             schema: vec![
-                DataType::Int,
-                DataType::Int,
-                DataType::Int,
-                DataType::Char(10),
-                DataType::Char(10),
-                DataType::Char(10),
-                DataType::Bool,
-                DataType::Bool,
-                DataType::Float,
-                DataType::UInt,
-                DataType::VarChar(255),
-                DataType::VarChar(255),
+                (String::new(), DataType::Int),
+                (String::new(), DataType::Int),
+                (String::new(), DataType::Int),
+                (String::new(), DataType::Char(10)),
+                (String::new(), DataType::Char(10)),
+                (String::new(), DataType::Char(10)),
+                (String::new(), DataType::Bool),
+                (String::new(), DataType::Bool),
+                (String::new(), DataType::Float),
+                (String::new(), DataType::UInt),
+                (String::new(), DataType::VarChar(255)),
+                (String::new(), DataType::VarChar(255)),
             ],
         };
         let record = Record {
@@ -157,7 +165,7 @@ mod tests {
         }
 
         for cell in table.cursor() {
-            let record2 = Record::from_bytes(&schema, cell.to_bytes());
+            let record2 = Record::from_bytes(&schema, cell);
             assert_eq!(record, record2);
         }
     }
@@ -166,15 +174,20 @@ mod tests {
     fn a_lot_of_insert() {
         const CAPACITY: usize = 512 * 4096;
         let disk = Disk::<512, CAPACITY>::create("test_table_a_lot_of_insert").unwrap();
-        let disk_manager = FreeSpaceManager::init(&disk);
-        let mut table = Table::init(&disk, &disk_manager);
+        const MEMORY_CAPACITY: usize = 4096 * 32;
+        let memory = [0; MEMORY_CAPACITY];
+        let buffer_manager: BufferManager<512, CAPACITY, MEMORY_CAPACITY> =
+            BufferManager::init(&memory, &disk);
+        let disk_manager = DiskManager::init(&disk);
+        let file_system = FileSystem::init(&buffer_manager, &disk_manager).unwrap();
+        let mut table = Table::new(file_system.create_file("test1").unwrap());
 
         let schema = Schema {
             schema: vec![
-                DataType::Char(10),
-                DataType::Bool,
-                DataType::UInt,
-                DataType::VarChar(255),
+                (String::new(), DataType::Char(10)),
+                (String::new(), DataType::Bool),
+                (String::new(), DataType::UInt),
+                (String::new(), DataType::VarChar(255)),
             ],
         };
         let record = Record {
@@ -192,7 +205,7 @@ mod tests {
         }
 
         for r in table.cursor() {
-            let record2 = Record::from_bytes(&schema, r.to_bytes());
+            let record2 = Record::from_bytes(&schema, r);
             assert_eq!(record, record2);
         }
     }

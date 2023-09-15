@@ -21,6 +21,10 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
     pub fn cursor(&'a self) -> Cursor<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> {
         self.file.cursor()
     }
+
+    pub fn save(&self) {
+        self.file.save()
+    }
 }
 
 #[cfg(test)]

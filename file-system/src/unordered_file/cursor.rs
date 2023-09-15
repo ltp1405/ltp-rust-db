@@ -89,7 +89,6 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
     }
 
     pub fn advance(&self) {
-        println!("advance");
         let page = self.buffer_manager.get_page(self.block_number.get());
         let cell = unsafe { Cell::new(self.offset.get(), &page) };
         let cell = match cell {

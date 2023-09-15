@@ -1,4 +1,4 @@
-use std::mem::size_of;
+use std::{fmt::Display, mem::size_of};
 
 use super::schema::{DataType, Schema};
 
@@ -15,10 +15,57 @@ pub enum Field {
     VarCharUtf8(Option<String>),
 }
 
+impl Display for Field {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Char(data) => match data {
+                Some(value) => write!(f, "{}", String::from_utf8(value.to_vec()).unwrap()),
+                None => write!(f, "None"),
+            },
+            Self::Bool(data) => match data {
+                Some(value) => write!(f, "{}", value),
+                None => write!(f, "None"),
+            },
+            Self::UInt(data) => match data {
+                Some(value) => write!(f, "{}", value),
+                None => write!(f, "None"),
+            },
+            Self::Int(data) => match data {
+                Some(value) => write!(f, "{}", value),
+                None => write!(f, "None"),
+            },
+            Self::Float(data) => match data {
+                Some(value) => write!(f, "{}", value),
+                None => write!(f, "None"),
+            },
+            Self::VarChar(data) => match data {
+                Some(value) => write!(f, "{}", String::from_utf8(value.to_vec()).unwrap()),
+                None => write!(f, "None"),
+            },
+            _ => panic!(),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct Record<'a> {
     pub schema: &'a Schema,
     pub data: Vec<Field>,
+}
+
+impl<'a> Display for Record<'a> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for i in 0..self.schema.schema.len() - 1 {
+            writeln!(f, "{}: {}", self.schema.schema[i].0, self.data[i])?
+        }
+        let last_idx = self.schema.schema.len() - 1;
+        write!(
+            f,
+            "{}: {}",
+            self.schema.schema[last_idx].0, self.data[last_idx]
+        )?;
+        Ok(())
+    }
 }
 
 impl<'a> Record<'a> {

@@ -3,7 +3,7 @@ use disk_manager::DiskManager;
 use files_table::FilesTable;
 use unordered_file::File;
 
-mod btree_index;
+pub mod btree_index;
 pub mod buffer_manager;
 pub mod disk_manager;
 pub mod files_table;
@@ -59,7 +59,6 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         name: &str,
     ) -> Result<File<BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>, FileSystemError> {
         let file = File::init(&self.disk_manager, &self.buffer_manager);
-        println!("file head page number: {}", file.head_page_number);
         self.files_table.add_file(name, file.head_page_number);
         self.save_files_table();
         Ok(file)

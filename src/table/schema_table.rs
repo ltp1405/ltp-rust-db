@@ -32,6 +32,10 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         let v = self.file.cursor().map(|s| s.to_vec()).collect();
         Schema::deserialize(v).expect("Invalid file format.")
     }
+
+    pub fn save(&self) {
+        self.file.save()
+    }
 }
 
 #[cfg(test)]

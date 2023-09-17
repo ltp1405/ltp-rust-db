@@ -1,4 +1,3 @@
-use std::mem::size_of;
 use std::sync::{Arc, Mutex};
 use std::time;
 
@@ -11,22 +10,12 @@ struct PageTableEntry {
 }
 
 impl PageTableEntry {
-    fn size() -> usize {
-        size_of::<PageTableEntry>()
-    }
-
     fn zero() -> Self {
         PageTableEntry { entry: [0; 10] }
     }
 
     fn get_pin(&self) -> u8 {
         self.entry[8]
-    }
-
-    fn from_bytes(bytes: &[u8]) -> Self {
-        let mut entry = [0; 10];
-        entry.copy_from_slice(bytes);
-        PageTableEntry { entry }
     }
 
     fn pin(&mut self) {
@@ -157,7 +146,7 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> PageTable<BLOCKSIZE, CAPACIT
 
 #[cfg(test)]
 mod tests {
-    use crate::buffer_manager::page_table::PageTableEntry;
+    use crate::page_table::PageTableEntry;
 
     use super::PageTable;
 

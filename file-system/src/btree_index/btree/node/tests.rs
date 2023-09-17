@@ -1,11 +1,10 @@
-use crate::{
-    btree_index::btree::{
-        node::{node_header::NodeType, Slot},
-        RowAddress,
-    },
-    buffer_manager::BufferManager,
-    disk_manager::DiskManager,
+use crate::btree_index::btree::{
+    node::{header::NodeType, Slot},
+    RowAddress,
 };
+
+use buffer_manager::BufferManager;
+use disk_manager::DiskManager;
 
 fn init<'a, const BLOCKSIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACITY: usize>(
     file_name: &str,
@@ -21,40 +20,7 @@ fn init<'a, const BLOCKSIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAP
     (buffer_manager, disk_manager)
 }
 
-use super::{node_header::NodePointer, InsertResult, Node};
-
-fn tree_contains_holes<
-    const BLOCKSIZE: usize,
-    const CAPACITY: usize,
-    const MEMORY_CAPACITY: usize,
->(
-    root: &Node<'_, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-) -> bool {
-    let buffer_manager = root.buffer_manager;
-    let disk_manager = root.disk_manager;
-    let mut queue = vec![root.page_number];
-    while let Some(node) = queue.pop() {
-        let node = Node::from(&buffer_manager, &disk_manager, node);
-        match node.node_type() {
-            NodeType::Leaf => {
-                let holes = node.find_holes();
-                if !holes.is_empty() {
-                    return true;
-                }
-            }
-            NodeType::Interior => {
-                let holes = node.find_holes();
-                if !holes.is_empty() {
-                    return true;
-                }
-                for child in node.children() {
-                    queue.push(child.page_number);
-                }
-            }
-        }
-    }
-    false
-}
+use super::{header::NodePointer, InsertResult, Node};
 
 fn create_sample_tree<
     'a,
@@ -134,7 +100,7 @@ fn cleaning_holes() {
         init::<BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY>("cleaning_holes", &memory);
 
     let node = Node::new(NodeType::Leaf, &buffer_manager, &disk_manager);
-    let mut node = match node.node_insert(&[1, 2, 3], RowAddress::new(1, 2)) {
+    let node = match node.node_insert(&[1, 2, 3], RowAddress::new(1, 2)) {
         InsertResult::Normal(node) => node,
         _ => unreachable!(),
     };
@@ -588,27 +554,6 @@ fn interior_insert_split() {
         InsertResult::Normal(node) => node,
         _ => unreachable!(),
     };
-    // match node.interior_insert(&[5; 104], 6, None) {
-    //     InsertResult::Splitted(key, left, right) => {
-    //         assert_eq!(left.node_type(), NodeType::Interior);
-    //         assert_eq!(left.num_cells(), 1);
-    //         assert_eq!(&left.key_of_cell(0), &[1; 100]);
-    //         assert_eq!(left.child_pointer_of_cell(0), 2);
-    //         assert_eq!(&left.key_of_cell(1), &[2; 101]);
-    //         assert_eq!(left.child_pointer_of_cell(1), 3);
-
-    //         assert_eq!(right.num_cells(), 3);
-    //         assert_eq!(&right.key_of_cell(0), &[3; 102]);
-    //         assert_eq!(right.child_pointer_of_cell(0), 4);
-    //         assert_eq!(&right.key_of_cell(1), &[4; 103]);
-    //         assert_eq!(right.child_pointer_of_cell(1), 5);
-    //         assert_eq!(&right.key_of_cell(2), &[5; 104]);
-    //         assert_eq!(right.child_pointer_of_cell(2), 6);
-
-    //         assert_eq!(key, &[3; 102]);
-    //     }
-    //     _ => unreachable!(),
-    // };
 }
 
 fn handle_normal_insert<
@@ -698,4 +643,3 @@ fn node_insert_split() {
     // };
     // println!("{:#?}", root);
 }
-

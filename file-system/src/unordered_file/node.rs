@@ -1,6 +1,4 @@
-use std::{mem::size_of, ops::Deref};
-
-use crate::buffer_manager::Page;
+use buffer_manager::Page;
 
 use super::{
     cell::{self, Cell, CellMut},
@@ -163,9 +161,9 @@ impl<'a, const BLOCKSIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACI
 mod tests {
     use disk::Disk;
 
-    use crate::{
-        buffer_manager::BufferManager, disk_manager::DiskManager, unordered_file::node::Node,
-    };
+    use crate::unordered_file::node::Node;
+    use buffer_manager::BufferManager;
+    use disk_manager::DiskManager;
 
     #[test]
     fn next() {

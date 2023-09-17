@@ -1,7 +1,7 @@
+use buffer_manager::BufferManager;
 use disk::Disk;
-use file_system::{
-    buffer_manager::BufferManager, disk_manager::DiskManager, unordered_file::Cell, FileSystem,
-};
+use disk_manager::DiskManager;
+use file_system::FileSystem;
 
 #[test]
 fn no_replacement() {

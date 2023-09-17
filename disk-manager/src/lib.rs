@@ -1,4 +1,4 @@
-pub mod bitmap;
+mod bitmap;
 use std::sync::{Arc, Mutex};
 
 use disk::Disk;

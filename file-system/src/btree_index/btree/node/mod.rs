@@ -1,13 +1,11 @@
-pub mod cell;
-mod node_header;
+mod cell;
+mod header;
 
 #[cfg(test)]
 mod tests;
 
-use crate::{
-    buffer_manager::{BufferManager, Page},
-    disk_manager::DiskManager,
-};
+use buffer_manager::{BufferManager, Page};
+use disk_manager::DiskManager;
 use std::{
     fmt::Debug,
     mem::size_of,
@@ -15,12 +13,12 @@ use std::{
 };
 
 use self::cell::{Cell, CellMut};
-use self::node_header::*;
+use self::header::*;
 
 use super::RowAddress;
 
-pub use node_header::NodePointer;
-pub use node_header::NodeType;
+pub use header::NodePointer;
+pub use header::NodeType;
 
 /// Each node of the btree is contained inside 1 page
 pub struct Node<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize> {
@@ -162,20 +160,6 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         unsafe { NodeHeaderWriter::new(page).set_num_cells(num_cells) }
     }
 
-    fn cell_pointer_offset(&self, cell_num: u32) -> usize {
-        let page = self.page().as_ptr();
-        let cell_pointer_offset =
-            unsafe { NodeHeaderReader::new(page).cell_pointer_offset(cell_num) };
-        cell_pointer_offset as usize
-    }
-
-    fn cell_bound(&self, cell_num: u32) -> (usize, usize) {
-        let page = self.page();
-        let (cell_ptr, cell_size) =
-            unsafe { NodeHeaderReader::new(page.as_ptr()).cell_pointer_and_size(cell_num) };
-        (cell_ptr as usize, (cell_ptr + cell_size) as usize)
-    }
-
     fn right_child(&self) -> NodePointer {
         assert_eq!(self.node_type(), NodeType::Interior);
         let page = self.page();
@@ -201,9 +185,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         match read_result {
             cell::PayloadReadResult::InPage { payload } => payload.to_vec(),
             cell::PayloadReadResult::InOverflow {
-                payload_len,
-                partial_payload,
-                overflow_page_head,
+                payload_len: _,
+                partial_payload: _,
+                overflow_page_head: _,
             } => todo!(),
         }
     }

@@ -6,7 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-disk = { path = "./disk/", version = "0.1.0"}
+buffer-manager = { path = "./buffer-manager/", version = "0.1.0"}
 file-system = { path = "./file-system/", version = "0.1.0"}
 log = "0.4.19"
 

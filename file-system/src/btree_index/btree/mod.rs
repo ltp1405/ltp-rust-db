@@ -1,11 +1,9 @@
 mod node;
 
-use std::{
-    fmt::Formatter,
-    sync::{Arc, Mutex},
-};
+use std::fmt::Formatter;
 
-use crate::{buffer_manager::BufferManager, disk_manager::DiskManager};
+use buffer_manager::BufferManager;
+use disk_manager::DiskManager;
 
 use self::node::{InsertResult, Node, NodePointer, NodeType};
 

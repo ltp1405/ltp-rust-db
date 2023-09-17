@@ -4,11 +4,8 @@ use files_table::FilesTable;
 use unordered_file::File;
 
 pub mod btree_index;
-pub mod buffer_manager;
-pub mod disk_manager;
 pub mod files_table;
 pub mod unordered_file;
-mod frame_allocator;
 
 pub struct FileSystem<
     'a,
@@ -83,7 +80,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
 
 #[cfg(test)]
 mod tests {
-    use crate::{buffer_manager::BufferManager, disk_manager::DiskManager, FileSystem};
+    use crate::FileSystem;
+    use buffer_manager::BufferManager;
+    use disk_manager::DiskManager;
 
     #[test]
     fn create_open_file() {

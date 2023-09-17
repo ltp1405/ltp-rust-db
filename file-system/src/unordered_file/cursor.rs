@@ -1,6 +1,4 @@
-use std::mem::size_of;
-
-use crate::buffer_manager::BufferManager;
+use buffer_manager::BufferManager;
 
 use super::{
     cell::{Cell, PayloadReadResult},
@@ -131,7 +129,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
 mod tests {
     use disk::Disk;
 
-    use crate::{buffer_manager::BufferManager, disk_manager::DiskManager, unordered_file::File};
+    use crate::unordered_file::File;
+    use buffer_manager::BufferManager;
+    use disk_manager::DiskManager;
 
     #[test]
     fn basic_insert_delete() {

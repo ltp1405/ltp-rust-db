@@ -1,3 +1,4 @@
+mod frame_allocator;
 mod page;
 mod page_table;
 
@@ -5,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use disk::Disk;
 
-use crate::frame_allocator::FrameAllocator;
+use frame_allocator::FrameAllocator;
 pub use page::Page;
 pub use page_table::PageTable;
 

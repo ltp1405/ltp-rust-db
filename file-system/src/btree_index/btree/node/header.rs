@@ -1,7 +1,5 @@
 use std::mem::size_of;
 
-use crate::buffer_manager::Page;
-
 pub type LeafNodeKey = u32;
 pub type NodePointer = u32;
 pub type CellsCount = u32;

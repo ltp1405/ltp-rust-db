@@ -1,5 +1,5 @@
 use std::{
-    fs::File,
+    fs::{remove_file, File},
     io::{Read, Seek, SeekFrom, Write},
     mem::size_of,
     sync::{Arc, Mutex},
@@ -17,6 +17,7 @@ const HEADER_SIZE: usize = size_of::<u32>() * 2;
 
 #[derive(Debug, Clone)]
 pub struct Disk<const BLOCKSIZE: usize, const CAPACITY: usize> {
+    file_name: String,
     file: Arc<Mutex<File>>,
 }
 
@@ -68,6 +69,7 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> Disk<BLOCKSIZE, CAPACITY> {
         file.set_len(CAPACITY as u64)?;
         write_header(&mut file, BLOCKSIZE as u32, CAPACITY as u32)?;
         Ok(Self {
+            file_name: String::from(name),
             file: Arc::new(Mutex::new(file)),
         })
     }
@@ -86,6 +88,7 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> Disk<BLOCKSIZE, CAPACITY> {
         assert_eq!(BLOCKSIZE, block_size as usize, "Incorrect disk block size");
         assert_eq!(CAPACITY, capacity as usize, "Incorrect disk capacity");
         Ok(Self {
+            file_name: String::from(name),
             file: Arc::new(Mutex::new(file)),
         })
     }

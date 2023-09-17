@@ -7,6 +7,8 @@ edition = "2021"
 
 [dependencies]
 disk = { path = "../disk/", version = "0.1.0" }
+buffer-manager = { path = "../buffer-manager/", version = "0.1.0" }
+disk-manager = { path = "../disk-manager/", version = "0.1.0" }
 log = "0.4.19"
 
 [dev-dependencies]

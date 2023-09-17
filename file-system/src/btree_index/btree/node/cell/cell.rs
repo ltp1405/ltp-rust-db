@@ -22,6 +22,8 @@ mod leaf_header {
 mod interior_header {
     use std::mem::size_of;
 
+    use crate::btree_index::btree::node::NodePointer;
+
     use super::KeySize;
     pub const fn static_header_size() -> usize {
         KEY_SIZE.1 + LEFT_CHILD_PTR.1
@@ -29,7 +31,7 @@ mod interior_header {
 
     /// Leaf Node Header Layout
     /// (<offset>, <size>)
-    pub const LEFT_CHILD_PTR: (usize, usize) = (0, size_of::<u32>());
+    pub const LEFT_CHILD_PTR: (usize, usize) = (0, size_of::<NodePointer>());
     /// (<offset>, <size>)
     pub const KEY_SIZE: (usize, usize) = (LEFT_CHILD_PTR.1, size_of::<KeySize>());
     /// (<offset>, <size>)
@@ -42,11 +44,11 @@ mod cell {
     use std::{fmt::Debug, mem::size_of};
 
     use crate::btree_index::btree::{
-        node::{cell::PayloadReadResult, node_header::NodePointer},
+        node::{cell::PayloadReadResult, header::NodePointer},
         RowAddress,
     };
 
-    use super::{interior_header, leaf_header, KeySize};
+    use super::{interior_header, leaf_header};
 
     pub enum Cell<'a> {
         Leaf(&'a [u8]),
@@ -76,7 +78,7 @@ mod cell {
                 }
             };
             match self {
-                Self::Leaf(b) => {
+                Self::Leaf(_b) => {
                     let key_size = self.key_size();
                     let cell_size = self.cell_size();
                     f.debug_struct("LeafCell")
@@ -85,7 +87,7 @@ mod cell {
                         .field("key", &key_display)
                         .finish()
                 }
-                Self::Interior(b) => {
+                Self::Interior(_b) => {
                     let key_size = self.key_size();
                     let cell_size = self.cell_size();
                     let left_child_ptr = self.child_pointer();
@@ -221,7 +223,7 @@ mod cell_mut {
     use std::mem::size_of;
 
     use crate::btree_index::btree::node::cell::{PayloadReadResult, PayloadWriteResult};
-    use crate::btree_index::btree::node::node_header::NodePointer;
+    use crate::btree_index::btree::node::header::NodePointer;
     use crate::btree_index::btree::RowAddress;
 
     use super::interior_header;

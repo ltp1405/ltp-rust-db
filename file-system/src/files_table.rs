@@ -1,11 +1,10 @@
 use std::mem::size_of;
 
-use crate::{
-    buffer_manager::BufferManager,
-    disk_manager::{bitmap::Bitmap, DiskManager},
-    unordered_file::{Cell, File},
-};
+use crate::unordered_file::File;
+use buffer_manager::BufferManager;
+use disk_manager::DiskManager;
 
+/// This table is used to store the file name and the block number of the file.
 pub struct FilesTable<
     'a,
     const BLOCKSIZE: usize,
@@ -13,7 +12,6 @@ pub struct FilesTable<
     const MEMORY_CAPACITY: usize,
 > {
     file: File<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
-    disk_manager: DiskManager<BLOCKSIZE, CAPACITY>,
 }
 
 impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize>
@@ -24,10 +22,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         disk_manager: &'a DiskManager<BLOCKSIZE, CAPACITY>,
     ) -> Self {
         let file = File::init(disk_manager, buffer_manager);
-        Self {
-            file,
-            disk_manager: disk_manager.clone(),
-        }
+        Self { file }
     }
 
     pub fn open(
@@ -36,10 +31,7 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
         pos: u32,
     ) -> Self {
         let file = File::open(buffer_manager, disk_manager, pos as u32);
-        Self {
-            file,
-            disk_manager: disk_manager.clone(),
-        }
+        Self { file }
     }
 
     pub fn add_file(&self, name: &str, block_number: u32) {
@@ -70,8 +62,8 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::disk_manager::DiskManager;
     use disk::Disk;
+    use disk_manager::DiskManager;
 
     #[test]
     fn test_file_table_with_normal_file() {

@@ -6,9 +6,13 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+disk = { path = "./disk/", version = "0.1.0"}
 buffer-manager = { path = "./buffer-manager/", version = "0.1.0"}
+disk-manager = { path = "./disk-manager/", version = "0.1.0"}
 file-system = { path = "./file-system/", version = "0.1.0"}
 log = "0.4.19"
+cursive = "0.20.0"
+cursive_table_view = "0.14.0"
 
 [dev-dependencies]
 rand = "0.8.5"

@@ -40,8 +40,9 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
 
 #[cfg(test)]
 mod tests {
-    use disk::Disk;
-    use file_system::{buffer_manager::BufferManager, disk_manager::DiskManager, FileSystem};
+    use buffer_manager::BufferManager;
+    use disk_manager::DiskManager;
+    use file_system::FileSystem;
 
     use crate::table::{
         schema::{DataType, Schema},

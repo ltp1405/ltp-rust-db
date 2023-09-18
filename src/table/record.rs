@@ -48,37 +48,32 @@ impl Display for Field {
 }
 
 #[derive(Debug, PartialEq, Clone)]
-pub struct Record<'a> {
-    pub schema: &'a Schema,
+pub struct Record {
     pub data: Vec<Field>,
 }
 
-impl<'a> Display for Record<'a> {
+impl Display for Record {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        for i in 0..self.schema.schema.len() - 1 {
-            writeln!(f, "{}: {}", self.schema.schema[i].0, self.data[i])?
-        }
-        let last_idx = self.schema.schema.len() - 1;
-        write!(
-            f,
-            "{}: {}",
-            self.schema.schema[last_idx].0, self.data[last_idx]
-        )?;
+        let last_idx = self.data.len() - 1;
+        write!(f, "{}", self.data[last_idx])?;
         Ok(())
     }
 }
 
-impl<'a> Record<'a> {
-    pub fn to_bytes(self) -> Vec<u8> {
+#[derive(Debug, PartialEq, Clone)]
+pub struct InvalidSchema;
+
+impl Record {
+    pub fn to_bytes(self, schema: &Schema) -> Result<Vec<u8>, InvalidSchema> {
         let mut buf: Vec<u8> = Vec::new();
         for (i, field) in self.data.into_iter().enumerate() {
-            let field_type = self.schema.get_field_type(i);
+            let field_type = schema.get_field_type(i);
             match field {
                 Field::Char(s) => {
                     if let Some(mut s) = s {
                         let char_len = match field_type {
                             DataType::Char(n) => *n as usize,
-                            _ => panic!("Invalid field type"),
+                            _ => return Err(InvalidSchema),
                         };
                         s.resize(char_len, b'\0');
                         buf.extend_from_slice(&s[..char_len]);
@@ -88,7 +83,7 @@ impl<'a> Record<'a> {
                     if let Some(s) = s {
                         let char_len = match field_type {
                             DataType::CharUtf8(n) => *n as usize * size_of::<char>(),
-                            _ => panic!("Invalid field type"),
+                            _ => return Err(InvalidSchema),
                         };
                         buf.extend_from_slice(&s.as_bytes()[..char_len]);
                     }
@@ -122,7 +117,7 @@ impl<'a> Record<'a> {
                     if let Some(s) = s {
                         let char_len = match field_type {
                             DataType::VarCharUtf8(n) => *n as usize * size_of::<char>(),
-                            _ => panic!("Invalid field type"),
+                            _ => return Err(InvalidSchema),
                         };
                         buf.extend_from_slice(&s.as_bytes()[..char_len]);
                     }
@@ -132,10 +127,10 @@ impl<'a> Record<'a> {
         }
         buf.pop();
         buf.push(b'\n');
-        buf
+        Ok(buf)
     }
 
-    pub fn from_bytes(schema: &'a Schema, buf: Vec<u8>) -> Self {
+    pub fn from_bytes(buf: Vec<u8>, schema: &Schema) -> Result<Self, InvalidSchema> {
         let mut fields = Vec::new();
         let raw_fields = buf.split(|&c| c == b'|');
         for (i, field) in raw_fields.into_iter().enumerate() {
@@ -146,7 +141,11 @@ impl<'a> Record<'a> {
                         fields.push(Field::Char(None));
                         continue;
                     }
-                    let field = field[..*n as usize].split(|&c| c == b'\0').next().unwrap();
+                    let field = field[..*n as usize].split(|&c| c == b'\0').next();
+                    let field = match field {
+                        Some(field) => field,
+                        None => return Err(InvalidSchema),
+                    };
                     fields.push(Field::Char(Some(field.to_vec())));
                 }
                 DataType::CharUtf8(n) => {
@@ -154,14 +153,25 @@ impl<'a> Record<'a> {
                         fields.push(Field::CharUtf8(None));
                         continue;
                     }
+                    let field = field[..*n as usize].split(|&c| c == b'\0').next();
+                    let field = match field {
+                        Some(field) => field,
+                        None => return Err(InvalidSchema),
+                    };
                     fields.push(Field::CharUtf8(Some(
-                        String::from_utf8(field[..*n as usize].to_vec()).unwrap(),
+                        String::from_utf8(field.to_vec()).unwrap(),
                     )));
                 }
                 DataType::Bool => {
                     if field.len() == 0 {
                         fields.push(Field::Bool(None));
                         continue;
+                    }
+                    if field.len() > 1 {
+                        return Err(InvalidSchema);
+                    }
+                    if field[0] != 0 && field[0] != 1 {
+                        return Err(InvalidSchema);
                     }
                     fields.push(Field::Bool(Some(field[0] != 0)));
                 }
@@ -170,8 +180,11 @@ impl<'a> Record<'a> {
                         fields.push(Field::UInt(None));
                         continue;
                     }
+                    if field.len() > size_of::<u32>() {
+                        return Err(InvalidSchema);
+                    }
                     fields.push(Field::UInt(Some(u32::from_be_bytes(
-                        field[..size_of::<u32>()].try_into().unwrap(),
+                        field[..].try_into().unwrap(),
                     ))));
                 }
                 DataType::Int => {
@@ -179,8 +192,11 @@ impl<'a> Record<'a> {
                         fields.push(Field::Int(None));
                         continue;
                     }
+                    if field.len() > size_of::<i32>() {
+                        return Err(InvalidSchema);
+                    }
                     fields.push(Field::Int(Some(i32::from_be_bytes(
-                        field[..size_of::<i32>()].try_into().unwrap(),
+                        field[..].try_into().unwrap(),
                     ))));
                 }
                 DataType::Float => {
@@ -188,8 +204,11 @@ impl<'a> Record<'a> {
                         fields.push(Field::Float(None));
                         continue;
                     }
+                    if field.len() > size_of::<f32>() {
+                        return Err(InvalidSchema);
+                    }
                     fields.push(Field::Float(Some(f32::from_be_bytes(
-                        field[..size_of::<f32>()].try_into().unwrap(),
+                        field[..].try_into().unwrap(),
                     ))));
                 }
                 DataType::VarChar(_) => {
@@ -211,10 +230,7 @@ impl<'a> Record<'a> {
                 }
             }
         }
-        Record {
-            schema,
-            data: fields,
-        }
+        Ok(Record { data: fields })
     }
 }
 
@@ -233,7 +249,6 @@ mod tests {
             ],
         };
         let record = Record {
-            schema: &schema,
             data: vec![
                 Field::Char(Some(b"Hello".to_vec())),
                 Field::Bool(Some(true)),
@@ -241,12 +256,11 @@ mod tests {
                 Field::VarChar(Some(b"World".to_vec())),
             ],
         };
-        let bytes = record.clone().to_bytes();
-        let record2 = Record::from_bytes(&schema, bytes);
+        let bytes = record.clone().to_bytes(&schema).unwrap();
+        let record2 = Record::from_bytes(bytes, &schema).unwrap();
         assert_eq!(record, record2);
 
         let record = Record {
-            schema: &schema,
             data: vec![
                 Field::Char(Some(b"Hello, World".to_vec())),
                 Field::Bool(Some(true)),
@@ -254,8 +268,8 @@ mod tests {
                 Field::VarChar(Some(b"World".to_vec())),
             ],
         };
-        let bytes = record.clone().to_bytes();
-        let record2 = Record::from_bytes(&schema, bytes);
+        let bytes = record.clone().to_bytes(&schema).unwrap();
+        let record2 = Record::from_bytes(bytes, &schema).unwrap();
         match record2.data[0] {
             Field::Char(Some(ref s)) => assert_eq!(s.len(), 10),
             _ => panic!("Invalid field type"),

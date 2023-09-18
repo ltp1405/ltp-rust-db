@@ -1,21 +1,26 @@
-use super::record::Record;
+use super::{
+    record::{InvalidSchema, Record},
+    schema::Schema,
+};
 
 use file_system::unordered_file::{Cursor, File};
 
 pub struct Table<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize> {
     file: File<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>,
+    schema: &'a Schema,
 }
 
 impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: usize>
     Table<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>
 {
-    pub fn new(file: File<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>) -> Self {
-        Self { file }
+    pub fn new(file: File<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY>, schema: &'a Schema) -> Self {
+        Self { file, schema }
     }
 
-    pub fn insert(&mut self, record: Record) {
-        let cell = &record.to_bytes();
+    pub fn insert(&mut self, record: Record) -> Result<(), InvalidSchema> {
+        let cell = &record.to_bytes(self.schema)?;
         self.file.insert(cell);
+        Ok(())
     }
 
     pub fn cursor(&'a self) -> Cursor<'a, BLOCKSIZE, CAPACITY, MEMORY_CAPACITY> {
@@ -29,8 +34,10 @@ impl<'a, const BLOCKSIZE: usize, const CAPACITY: usize, const MEMORY_CAPACITY: u
 
 #[cfg(test)]
 mod tests {
+    use buffer_manager::BufferManager;
     use disk::Disk;
-    use file_system::{buffer_manager::BufferManager, disk_manager::DiskManager, FileSystem};
+    use disk_manager::DiskManager;
+    use file_system::FileSystem;
 
     use crate::table::{
         record::{Field, Record},
@@ -48,8 +55,6 @@ mod tests {
             BufferManager::init(&memory, &disk);
         let disk_manager = DiskManager::init(&disk);
         let file_system = FileSystem::init(&buffer_manager, &disk_manager).unwrap();
-        let mut table = Table::new(file_system.create_file("test1").unwrap());
-
         let schema = Schema {
             schema: vec![
                 (String::new(), DataType::Char(10)),
@@ -58,8 +63,9 @@ mod tests {
                 (String::new(), DataType::VarChar(255)),
             ],
         };
+        let mut table = Table::new(file_system.create_file("test1").unwrap(), &schema);
+
         let record = Record {
-            schema: &schema,
             data: vec![
                 Field::Char(Some(b"Hello".to_vec())),
                 Field::Bool(Some(true)),
@@ -67,15 +73,15 @@ mod tests {
                 Field::VarChar(Some(b"World".to_vec())),
             ],
         };
-        let bytes = record.clone().to_bytes();
-        let record2 = Record::from_bytes(&schema, bytes);
+        let bytes = record.clone().to_bytes(&schema).unwrap();
+        let record2 = Record::from_bytes(bytes, &schema).unwrap();
         assert_eq!(record, record2);
 
-        table.insert(record.clone());
+        table.insert(record.clone()).unwrap();
 
-        let mut cursor = table.cursor();
+        let cursor = table.cursor();
         let r = cursor.read();
-        let record2 = Record::from_bytes(&schema, r.unwrap());
+        let record2 = Record::from_bytes(r.unwrap(), &schema).unwrap();
         assert_eq!(record, record2);
     }
 
@@ -88,8 +94,6 @@ mod tests {
             BufferManager::init(&memory, &disk);
         let disk_manager = DiskManager::init(&disk);
         let file_system = FileSystem::init(&buffer_manager, &disk_manager).unwrap();
-        let mut table = Table::new(file_system.create_file("test1").unwrap());
-
         let schema = Schema {
             schema: vec![
                 (String::new(), DataType::Char(10)),
@@ -98,8 +102,9 @@ mod tests {
                 (String::new(), DataType::VarChar(255)),
             ],
         };
+        let mut table = Table::new(file_system.create_file("test1").unwrap(), &schema);
+
         let record = Record {
-            schema: &schema,
             data: vec![
                 Field::Char(Some(b"Hello".to_vec())),
                 Field::Bool(Some(true)),
@@ -113,7 +118,7 @@ mod tests {
         }
 
         for r in table.cursor() {
-            let record2 = Record::from_bytes(&schema, r);
+            let record2 = Record::from_bytes(r, &schema).unwrap();
             assert_eq!(record, record2);
         }
     }
@@ -128,8 +133,6 @@ mod tests {
             BufferManager::init(&memory, &disk);
         let disk_manager = DiskManager::init(&disk);
         let file_system = FileSystem::init(&buffer_manager, &disk_manager).unwrap();
-        let mut table = Table::new(file_system.create_file("test1").unwrap());
-
         let schema = Schema {
             schema: vec![
                 (String::new(), DataType::Int),
@@ -147,7 +150,6 @@ mod tests {
             ],
         };
         let record = Record {
-            schema: &schema,
             data: vec![
                 Field::Int(Some(1)),
                 Field::Int(Some(2)),
@@ -164,12 +166,14 @@ mod tests {
             ],
         };
 
+        let mut table = Table::new(file_system.create_file("test1").unwrap(), &schema);
+
         for _ in 0..1000 {
             table.insert(record.clone());
         }
 
         for cell in table.cursor() {
-            let record2 = Record::from_bytes(&schema, cell);
+            let record2 = Record::from_bytes(cell, &schema).unwrap();
             assert_eq!(record, record2);
         }
     }
@@ -184,8 +188,6 @@ mod tests {
             BufferManager::init(&memory, &disk);
         let disk_manager = DiskManager::init(&disk);
         let file_system = FileSystem::init(&buffer_manager, &disk_manager).unwrap();
-        let mut table = Table::new(file_system.create_file("test1").unwrap());
-
         let schema = Schema {
             schema: vec![
                 (String::new(), DataType::Char(10)),
@@ -194,8 +196,9 @@ mod tests {
                 (String::new(), DataType::VarChar(255)),
             ],
         };
+        let mut table = Table::new(file_system.create_file("test1").unwrap(), &schema);
+
         let record = Record {
-            schema: &schema,
             data: vec![
                 Field::Char(Some(b"Hello".to_vec())),
                 Field::Bool(Some(true)),
@@ -209,7 +212,7 @@ mod tests {
         }
 
         for r in table.cursor() {
-            let record2 = Record::from_bytes(&schema, r);
+            let record2 = Record::from_bytes(r, &schema).unwrap();
             assert_eq!(record, record2);
         }
     }

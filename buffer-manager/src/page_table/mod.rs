@@ -1,51 +1,14 @@
+mod page_table_entry;
+mod iter;
+
 use std::sync::{Arc, Mutex};
 use std::time;
 
-/// This table map the disk block (in the form of page) to the frame in physical memory
-/// Each entry represent a map from page ---> frame
-#[derive(Clone, Copy)]
-struct PageTableEntry {
-    /// | timestamp: f32 | frame number: u32 | pin: u8 | dirty: u8 |
-    entry: [u8; 10],
-}
+pub use page_table_entry::PageTableEntry;
 
-impl PageTableEntry {
-    fn zero() -> Self {
-        PageTableEntry { entry: [0; 10] }
-    }
+use self::iter::PageTableIterator;
 
-    fn get_pin(&self) -> u8 {
-        self.entry[8]
-    }
-
-    fn pin(&mut self) {
-        self.entry[8] += 1;
-    }
-
-    fn set_timestamp(&mut self, timestamp: f32) {
-        self.entry[0..4].copy_from_slice(&timestamp.to_be_bytes());
-    }
-
-    fn timestamp(&self) -> f32 {
-        f32::from_be_bytes(self.entry[0..4].try_into().unwrap())
-    }
-
-    fn unpin(&mut self) {
-        if self.entry[8] == 0 {
-            panic!("Page is not pinned");
-        }
-        self.entry[8] -= 1;
-    }
-
-    fn get_frame_number(&self) -> u32 {
-        u32::from_be_bytes(self.entry[4..8].try_into().unwrap())
-    }
-
-    fn set_frame_number(&mut self, frame_number: u32) {
-        self.entry[4..8].copy_from_slice(&frame_number.to_be_bytes());
-    }
-}
-
+#[derive(Clone)]
 pub struct PageTable<const BLOCKSIZE: usize, const CAPACITY: usize> {
     created_at: time::Instant,
     entries: Arc<Mutex<Vec<Option<PageTableEntry>>>>,
@@ -141,6 +104,11 @@ impl<const BLOCKSIZE: usize, const CAPACITY: usize> PageTable<BLOCKSIZE, CAPACIT
     pub(crate) fn unmap_page(&self, page_to_evict: u32) {
         let mut entries = self.entries.lock().unwrap();
         entries[page_to_evict as usize] = None;
+    }
+
+    pub fn iter(&self) -> PageTableIterator<BLOCKSIZE, CAPACITY> {
+        let entries = self.entries.lock().unwrap();
+        PageTableIterator::<BLOCKSIZE, CAPACITY>::new(entries.clone())
     }
 }
 

@@ -10,7 +10,7 @@ pub struct Page<
 > {
     page_number: u32,
     frame_number: u32,
-    buffer_manager: &'a BufferManager<'a, PAGE_SIZE, DISK_CAPACITY, MEMORY_CAPACITY>,
+    buffer_manager: &'a BufferManager<PAGE_SIZE, DISK_CAPACITY, MEMORY_CAPACITY>,
 }
 
 impl<'a, const PAGE_SIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACITY: usize>
@@ -19,7 +19,7 @@ impl<'a, const PAGE_SIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACI
     pub(super) fn init(
         page_number: u32,
         frame_number: u32,
-        buffer_manager: &'a BufferManager<'a, PAGE_SIZE, DISK_CAPACITY, MEMORY_CAPACITY>,
+        buffer_manager: &'a BufferManager<PAGE_SIZE, DISK_CAPACITY, MEMORY_CAPACITY>,
     ) -> Self {
         buffer_manager.page_table.pin_page(page_number);
         Page {

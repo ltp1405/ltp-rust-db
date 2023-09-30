@@ -10,33 +10,33 @@ use frame_allocator::FrameAllocator;
 pub use page::Page;
 pub use page_table::PageTable;
 
+#[derive(Clone)]
 pub struct BufferManager<
-    'a,
     const BLOCK_SIZE: usize,
     const DISK_CAPACITY: usize,
     const MEMORY_CAPACITY: usize,
 > {
     page_table: PageTable<BLOCK_SIZE, DISK_CAPACITY>,
     frame_allocator: Arc<Mutex<FrameAllocator<BLOCK_SIZE, MEMORY_CAPACITY>>>,
-    memory: &'a [u8],
+    memory: Arc<Box<[u8; MEMORY_CAPACITY]>>,
     disk: Disk<BLOCK_SIZE, DISK_CAPACITY>,
 }
 
-impl<'a, const BLOCK_SIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACITY: usize>
-    BufferManager<'a, BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY>
+impl<const BLOCK_SIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPACITY: usize>
+    BufferManager<BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY>
 {
-    pub fn init(memory: &'a [u8], disk: &Disk<BLOCK_SIZE, DISK_CAPACITY>) -> Self {
+    pub fn init(memory: &[u8], disk: &Disk<BLOCK_SIZE, DISK_CAPACITY>) -> Self {
         let frame_allocator = Arc::new(Mutex::new(FrameAllocator::init()));
         let page_table = PageTable::init();
         BufferManager {
             page_table,
             frame_allocator,
-            memory: &memory,
+            memory: Arc::new(Box::new(memory.try_into().unwrap())),
             disk: disk.clone(),
         }
     }
 
-    pub fn save_page(&'a self, page_number: u32) -> Result<(), String> {
+    pub fn save_page<'a>(&'a self, page_number: u32) -> Result<(), String> {
         if self.page_table.is_pinned(page_number).unwrap() {
             return Err(format!("Page {} is pinned", page_number).to_string());
         }
@@ -49,7 +49,7 @@ impl<'a, const BLOCK_SIZE: usize, const DISK_CAPACITY: usize, const MEMORY_CAPAC
     }
 
     // TODO: How about create a new page?
-    pub fn get_page(
+    pub fn get_page<'a>(
         &'a self,
         page_number: u32,
     ) -> Page<'a, BLOCK_SIZE, DISK_CAPACITY, MEMORY_CAPACITY> {
@@ -101,11 +101,45 @@ mod tests {
     const MEMORY_CAPACITY: usize = 4096 * 16;
 
     #[test]
+    fn multithreaded() {
+        let disk = disk::Disk::<BLOCK_SIZE, DISK_CAPACITY>::create("multithreaded").unwrap();
+        let memory = [0u8; 4096 * 16];
+        let buffer_manager: BufferManager<4096, DISK_CAPACITY, MEMORY_CAPACITY> =
+            BufferManager::init(&memory, &disk);
+        let mut handles = vec![];
+        for i in 0..32 {
+            let buffer_manager = buffer_manager.clone();
+            let handle = std::thread::spawn(move || {
+                let mut page = buffer_manager.get_page(i);
+                page.copy_from_slice(&[i as u8; 4096]);
+                drop(page);
+                buffer_manager.save_page(i).unwrap();
+            });
+            handles.push(handle);
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        let mut handles = vec![];
+        for i in 0..10 {
+            let buffer_manager = buffer_manager.clone();
+            let handle = std::thread::spawn(move || {
+                let page = buffer_manager.get_page(i);
+                assert_eq!(page[0], i as u8);
+            });
+            handles.push(handle);
+        }
+        for handle in handles {
+            handle.join().unwrap();
+        }
+    }
+
+    #[test]
     fn write_reload() {
         let disk = disk::Disk::<BLOCK_SIZE, DISK_CAPACITY>::create("write_reload").unwrap();
         {
             let memory = [0u8; 4096 * 16];
-            let buffer_manager: BufferManager<'_, 4096, DISK_CAPACITY, MEMORY_CAPACITY> =
+            let buffer_manager: BufferManager<4096, DISK_CAPACITY, MEMORY_CAPACITY> =
                 BufferManager::init(&memory, &disk);
             let mut page1 = buffer_manager.get_page(5);
             page1.copy_from_slice(&[1u8; 4096]);
@@ -118,7 +152,7 @@ mod tests {
         }
         {
             let memory = [0u8; 4096 * 16];
-            let buffer_manager: BufferManager<'_, 4096, DISK_CAPACITY, MEMORY_CAPACITY> =
+            let buffer_manager: BufferManager<4096, DISK_CAPACITY, MEMORY_CAPACITY> =
                 BufferManager::init(&memory, &disk);
             let page1 = buffer_manager.get_page(5);
             assert_eq!(page1[0], 1u8);
@@ -131,7 +165,7 @@ mod tests {
     fn simple_get_page() {
         let memory = [0u8; 4096 * 16];
         let disk = disk::Disk::<BLOCK_SIZE, DISK_CAPACITY>::create("simple_get_page").unwrap();
-        let buffer_manager: BufferManager<'_, 4096, DISK_CAPACITY, MEMORY_CAPACITY> =
+        let buffer_manager: BufferManager<4096, DISK_CAPACITY, MEMORY_CAPACITY> =
             BufferManager::init(&memory, &disk);
         let _page1 = buffer_manager.get_page(5);
         // let _page2 = buffer_manager.get_page(14);
@@ -141,7 +175,7 @@ mod tests {
     fn get_lots_of_pages() {
         let memory = [0u8; 4096 * 16];
         let disk = disk::Disk::<BLOCK_SIZE, DISK_CAPACITY>::create("get_lots_of_pages").unwrap();
-        let buffer_manager: BufferManager<'_, 4096, DISK_CAPACITY, MEMORY_CAPACITY> =
+        let buffer_manager: BufferManager<4096, DISK_CAPACITY, MEMORY_CAPACITY> =
             BufferManager::init(&memory, &disk);
         let _page1 = buffer_manager.get_page(5);
         let _page2 = buffer_manager.get_page(14);
